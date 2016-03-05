@@ -43,7 +43,7 @@ namespace WebuSocket {
 			);
 		}
 		
-		private void WebSocketHandshakeRequest (string urlSource {
+		private void WebSocketHandshakeRequest (string urlSource) {
 			var uri = new Uri(urlSource);
 			
 			var method = "GET";
@@ -54,7 +54,7 @@ namespace WebuSocket {
 			var agent = "testing_webuSocket_client";
 			var base64Key = GeneratePrivateBase64Key();
 			
-			Debug.LogError("uri.DnsSafeHost:" + uri.DnsSafeHost);
+			Debug.LogError("wss is not supported yet.");
 			
 			var requestHeaderParams = new Dictionary<string, string>{
 				{"Host", (port == 80 && schm == "ws") || (port == 443 && schm == "wss") ? uri.DnsSafeHost : uri.Authority},
