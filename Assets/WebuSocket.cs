@@ -14,7 +14,7 @@ namespace WebuSocket {
 		private Socket socket;
 		
 		public WebuSocketClient (string protocol, string host, int port) {
-			var url = protocol + "://" + host + ":" + port;
+			var url = protocol + "://" + host + ":" + port + "/calivers_disque_client";
 			
 			// wsかwss、まずはws protocolだけサポートする。いきなり非同期でいいんじゃねーかな。
 			Debug.LogError("url:" + url);
@@ -43,18 +43,13 @@ namespace WebuSocket {
 			);
 		}
 		
-		
-		
-		private void WebSocketHandshakeRequest (string urlSource) {
-			Debug.LogError("ダミーパラメータ一杯 urlSource:" + urlSource);
-			
+		private void WebSocketHandshakeRequest (string urlSource {
 			var uri = new Uri(urlSource);
 			
 			var method = "GET";
 			var host = uri.Host;
 			var schm = uri.Scheme;
 			var port = uri.Port;
-			
 			
 			var agent = "testing_webuSocket_client";
 			var base64Key = GeneratePrivateBase64Key();
@@ -125,10 +120,8 @@ namespace WebuSocket {
 			// 	throw new WebSocketException (CloseStatusCode.TlsHandshakeFailure, ex);
 			// 	}
 			// }
-			Debug.LogError("host:" + host);
+			
 			try {
-				// なるほど、ダイレクトにしか繋げない、、のか、、httpじゃないから、、
-				// httpでつなぐためには、tcpで接続したあとに何かする必要がある感じがする。
 				sock.Connect(host, port);
 			} catch (Exception e) {
 				Debug.LogError("failed to connect to host:" + host + " error:" + e);
@@ -141,14 +134,16 @@ namespace WebuSocket {
 				return;
 			}
 			
-			var result = sock.Send(outputBytes);// これを送ると、っていう感じなので、送るものに工夫できれば良さげ。
+			var result = sock.Send(outputBytes);
 			if (0 < result) {}// succeeded to send.
 			else {
 				Debug.LogError("failed to send data.");
 				return;
 			}
 			
-			// 改行コードまでは読んでいいような気がする。
+			/*
+				もし接続時に何か言われてる場合、おかしい気がする。
+			*/
 			while (0 < sock.Available) {
 				var res = ReadLineBytes(sock);
 				Debug.LogError("res:" + Encoding.UTF8.GetString(res));
