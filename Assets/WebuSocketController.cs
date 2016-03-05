@@ -7,7 +7,7 @@ public class WebuSocketController : MonoBehaviour {
 	
 	// Use this for initialization
 	void Start () {
-		webuSocket = new WebuSocketClient("ws://", "127.0.0.1", 80);
+		webuSocket = new WebuSocketClient("ws", "127.0.0.1", 80);
 		
 		// new WebSocket(WEBSOCKET_ENTRYPOINT, customHeaderKeyValues, agent);
 

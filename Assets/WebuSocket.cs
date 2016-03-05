@@ -15,9 +15,9 @@ namespace WebuSocket {
 		
 		public WebuSocketClient (string protocol, string host, int port) {
 			var url = protocol + "://" + host + ":" + port;
+			
 			// wsかwss、まずはws protocolだけサポートする。いきなり非同期でいいんじゃねーかな。
 			Debug.LogError("url:" + url);
-			
 			
 			Debug.LogError("非同期前提にする。なので、ここでconnectingにして返す。");
 			state = ReadyState.Connecting;
@@ -28,7 +28,7 @@ namespace WebuSocket {
 				() => {
 					switch (state) {
 						case ReadyState.Connecting: {
-							WebSocketHandshakeRequestFromClient(url);
+							WebSocketHandshakeRequest(url);
 							
 							// TCPConnect(host, port);
 							
@@ -36,7 +36,8 @@ namespace WebuSocket {
 							state = ReadyState.Closed;
 							break;
 						}
-					} 
+					}
+					
 					return true;
 				}
 			);
@@ -44,28 +45,181 @@ namespace WebuSocket {
 		
 		
 		
-		private void WebSocketHandshakeRequestFromClient (string urlSource) {
-			Debug.LogError("ダミーパラメータ一杯");
+		private void WebSocketHandshakeRequest (string urlSource) {
+			Debug.LogError("ダミーパラメータ一杯 urlSource:" + urlSource);
 			
 			var uri = new Uri(urlSource);
 			
 			var method = "GET";
-			var url = uri.PathAndQuery;
+			var host = uri.Host;
 			var schm = uri.Scheme;
 			var port = uri.Port;
 			
-			var agent = "testing webuSocket client";
+			
+			var agent = "testing_webuSocket_client";
 			var base64Key = GeneratePrivateBase64Key();
+			
+			Debug.LogError("uri.DnsSafeHost:" + uri.DnsSafeHost);
 			
 			var requestHeaderParams = new Dictionary<string, string>{
 				{"Host", (port == 80 && schm == "ws") || (port == 443 && schm == "wss") ? uri.DnsSafeHost : uri.Authority},
 				{"Upgrade", "websocket"},
 				{"Connection", "Upgrade"},
 				{"Sec-WebSocket-Key", base64Key},
-				{"Sec-WebSocket-Version", WEBSOCKET_VERSION}
+				{"Sec-WebSocket-Version", WEBSOCKET_VERSION},
+				{"User-Agent", agent}
 			};
 			
-			// stream.Write(buff, 0, buff.Length);
+			var output = new StringBuilder();
+			output.AppendFormat("{0} {1} HTTP/{2}{3}", method, uri, "1.1", CRLF);
+
+			foreach (var key in requestHeaderParams.Keys) output.AppendFormat("{0}: {1}{2}", key, requestHeaderParams[key], CRLF);
+
+			output.Append (CRLF);
+
+			var entity = string.Empty;
+			output.Append(entity);
+			
+			Debug.LogError("output:" + output.ToString());
+			
+			
+			var outputBytes = Encoding.UTF8.GetBytes(output.ToString().ToCharArray());
+			
+			// if (_proxyUri != null) {
+			// 	_tcpClient = new TcpClient (_proxyUri.DnsSafeHost, _proxyUri.Port);
+			// 	_stream = _tcpClient.GetStream ();
+			// 	sendProxyConnectRequest ();
+			// } else {
+			
+			var timeout = 1000;
+			
+			var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+			sock.NoDelay = true;
+			sock.SendTimeout = timeout;
+			
+			// }
+
+			// if (_secure) {
+			// 	var conf = SslConfiguration;
+			// 	var host = conf.TargetHost;
+			// 	if (host != _uri.DnsSafeHost)
+			// 	throw new WebSocketException (
+			// 		CloseStatusCode.TlsHandshakeFailure, "An invalid host name is specified.");
+
+			// 	try {
+			// 	var sslStream = new SslStream (
+			// 		_stream,
+			// 		false,
+			// 		conf.ServerCertificateValidationCallback,
+			// 		conf.ClientCertificateSelectionCallback);
+
+			// 	sslStream.AuthenticateAsClient (
+			// 		host,
+			// 		conf.ClientCertificates,
+			// 		conf.EnabledSslProtocols,
+			// 		conf.CheckCertificateRevocation);
+
+			// 	_stream = sslStream;
+			// 	}
+			// 	catch (Exception ex) {
+			// 	throw new WebSocketException (CloseStatusCode.TlsHandshakeFailure, ex);
+			// 	}
+			// }
+			Debug.LogError("host:" + host);
+			try {
+				// なるほど、ダイレクトにしか繋げない、、のか、、httpじゃないから、、
+				// httpでつなぐためには、tcpで接続したあとに何かする必要がある感じがする。
+				sock.Connect(host, port);
+			} catch (Exception e) {
+				Debug.LogError("failed to connect to host:" + host + " error:" + e);
+			}
+			
+			if (!sock.Connected) {
+				Debug.LogError("failed to connect.");
+				sock.Close();
+				sock = null;
+				return;
+			}
+			
+			var result = sock.Send(outputBytes);// これを送ると、っていう感じなので、送るものに工夫できれば良さげ。
+			if (0 < result) {}// succeeded to send.
+			else {
+				Debug.LogError("failed to send data.");
+				return;
+			}
+			
+			// 改行コードまでは読んでいいような気がする。
+			while (0 < sock.Available) {
+				var res = ReadLineBytes(sock);
+				Debug.LogError("res:" + Encoding.UTF8.GetString(res));
+			}
+			
+			Debug.LogError("got resonse");
+			
+			// try {
+			// 	var httpResponseHeaders = readHeaders (stream, _headersMaxLength)
+			// 	var contentLen = http.Headers()["Content-Length"];
+			// 	if (contentLen != null && contentLen.Length > 0)
+			// 	http.EntityBodyData = readEntityBody (stream, contentLen);
+			// }
+			// catch (Exception ex) {
+			// 	exception = ex;
+			// }
+			// finally {
+			// 	timer.Change (-1, -1);
+			// 	timer.Dispose ();
+			// }
+
+			// var msg = timeout
+			// 			? "A timeout has occurred while reading an HTTP request/response."
+			// 			: exception != null
+			// 			? "An exception has occurred while reading an HTTP request/response."
+			// 			: null;
+
+			// if (msg != null)
+			// 	throw new WebSocketException (msg, exception);
+
+			// return http;
+			// }
+			
+		}
+		
+		public byte ReadFirstByte (Socket sock) {
+			byte[] b = new byte[1];
+			sock.Receive(b);
+			return b[0];
+		}
+
+		public byte[] ReadLineBytes (Socket sock) {
+			var buf = new byte[BUF_SIZE];
+			byte[] b = new byte[1];
+			
+			int limit = sock.Available;
+
+			int i = 0;
+			while (true) {
+				sock.Receive(b);
+				if (b[0] == '\r') continue;
+				if (b[0] == '\n') break;
+				
+				buf[i] = b[0];
+				
+				if (i == limit) {
+					Debug.Log("limit by Available.");
+					break;
+				}
+
+				if (i == buf.Length) {
+					Debug.Log("too large line.");
+					break;
+				}
+
+				i++;
+			}
+			var retByte = new byte[i];
+			Array.Copy(buf, 0, retByte, 0, i);
+
+			return retByte;
 		}
 		
 		private static string GeneratePrivateBase64Key () {
@@ -165,7 +319,7 @@ namespace WebuSocket {
 		}
 		
 		
-		
+		private const string CRLF = "\r\n";
 		private const int BUF_SIZE = 1024;
 		private const string WEBSOCKET_VERSION = "13"; 
 		private const string WEBSOCKET_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -197,7 +351,7 @@ namespace WebuSocket {
 				if (line.Length == 0 || line.Length == BUF_SIZE) throw new Exception("Invalid line in header.");
 				
 				// detect read end.
-				if (line == "\r\n") break;
+				if (line == CRLF) break;
 
 				// 前後の空白削ってる
 				// line = line.strip()
