@@ -1,0 +1,16 @@
+
+.vscode/launch.json
+
+Assembly-CSharp-Editor.csproj
+
+Assembly-CSharp.csproj
+
+Assets/VSCode/*
+
+Library/*
+
+obj/*
+
+Temp/*
+
+WebuSocket.sln
