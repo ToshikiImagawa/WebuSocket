@@ -56,6 +56,8 @@ namespace WebuSocket {
 		}
 		
 		private enum WSOrder : int {
+			Ping,
+			Pong,
 			CloseGracefully,
 		}
 		
@@ -73,11 +75,26 @@ namespace WebuSocket {
 			Action OnConnected,
 			Action<Queue<byte[]>> OnMessage,
 			Action<string> OnClosed,
-			Action<string> OnError
+			Action<string> OnError,
+			Dictionary<string, string> additionalHeaderParams=null
 		) {
+			Debug.LogError("wss and another features are not supported yet.");
+			/*
+				unsupporteds:
+					wss,
+					redirect,
+					proxy,
+					fragments(fin != 1) for sending & receiving,
+					text,
+					
+			*/
+			
 			this.webSocketConnectionId = Guid.NewGuid().ToString();
 			
 			state = WSConnectionState.Opening;
+			
+			
+			Queue<byte[]> messageQueue = new Queue<byte[]>();
 			
 			/*
 				thread for process the queue of received data.
@@ -86,23 +103,43 @@ namespace WebuSocket {
 				"WebuSocket-process-thread",
 				() => {
 					lock (receivedDataQueue) {
+						
+						
 						while (0 < receivedDataQueue.Count) {
-							if (OnMessage != null) {
-								var data = receivedDataQueue.Dequeue();
-								// １通とは限らない。複数が入ってる可能性のほうが高い。
-			
-								// 長さが書いてあるんでここで分割する + payloadごとに割る。
-								// 種類を分解して、コントロールならコントロール、そうでないなら、、みたいなことをする。
-								
-								OnMessage(new Queue<byte[]>());
+							var wholeData = receivedDataQueue.Dequeue();
+							var messages = WebSocketByteGenerator.SplitData(wholeData);
+							
+							foreach (var message in messages) {
+								switch (message.opCode) {
+									case WebSocketByteGenerator.OP_PING: {
+										StackOrder(WSOrder.Pong);
+										break;
+									}
+									case WebSocketByteGenerator.OP_PONG: {
+										// do nothing.
+										break;
+									}
+									case WebSocketByteGenerator.OP_BINARY: {
+										if (OnMessage != null) messageQueue.Enqueue(message.payload);  
+										break;
+									}
+									case WebSocketByteGenerator.OP_CLOSE: {
+										if (OnError != null) OnError("closed by server.");
+										Close();
+										break;
+									}
+								}
 							}
+						}
+						
+						if (0 < messageQueue.Count) {
+							OnMessage(messageQueue);
+							messageQueue.Clear();
 						}
 						return true;
 					}
 				}
 			);
-			
-			var frame = 0;
 			
 			/*
 				main thread for websocket data receiving & sending.
@@ -112,7 +149,7 @@ namespace WebuSocket {
 				() => {
 					switch (state) {
 						case WSConnectionState.Opening: {
-							var newSocket = WebSocketHandshake(url, OnError);
+							var newSocket = WebSocketHandshake(url, additionalHeaderParams, OnError);
 							
 							if (newSocket != null) {
 								this.socket = newSocket;
@@ -145,12 +182,9 @@ namespace WebuSocket {
 							
 							lock (stackedSendingDatas) {
 								while (state == WSConnectionState.Opened && 0 < stackedSendingDatas.Count) {
-									// queueに入ってるもの全部繋げて送信ってやっていいような気がするんだが、まあちゃんとやるか、、
 									var data = stackedSendingDatas.Dequeue();
-									
-									// websocketのフォーマッティングを行う。さて。binaryかstringかとかあるのか。
-									
-									// socket.Send
+									var framedData = WebSocketByteGenerator.SendBinaryData(data);
+									TrySend(framedData, OnError);
 								}
 							} 
 							
@@ -181,7 +215,6 @@ namespace WebuSocket {
 							return false;
 						}
 					}
-					frame++;
 					return true;
 				},
 				OnClosed
@@ -214,6 +247,19 @@ namespace WebuSocket {
 			}
 		}
 		
+		public void Ping () {
+			switch (state) {
+				case WSConnectionState.Opened: {
+					StackOrder(WSOrder.Ping);
+					break;
+				}
+				default: {
+					Debug.LogError("current state is:" + state + ", send operation request is ignored.");
+					break;
+				}
+			}
+		}
+		
 		public void Send (byte[] data) {
 			switch (state) {
 				case WSConnectionState.Opened: {
@@ -231,6 +277,7 @@ namespace WebuSocket {
 		public void Close () {
 			switch (state) {
 				case WSConnectionState.Opened: {
+					state = WSConnectionState.Closing;
 					StackOrder(WSOrder.CloseGracefully);
 					break;
 				}
@@ -265,6 +312,16 @@ namespace WebuSocket {
 		
 		private void ExecuteOrder (WSOrder order) {
 			switch (order) {
+				case WSOrder.Ping: {
+					var data = WebSocketByteGenerator.Ping();
+					TrySend(data);
+					break;
+				}
+				case WSOrder.Pong: {
+					var data = WebSocketByteGenerator.Pong();
+					TrySend(data);
+					break;
+				}
 				case WSOrder.CloseGracefully: {
 					state = WSConnectionState.Closing;
 					
@@ -300,7 +357,7 @@ namespace WebuSocket {
 			}
 			
 			if (state == WSConnectionState.Opening) {
-				StackOrder(WSOrder.CloseGracefully);
+				Close();
 				return;
 			}
 			
@@ -328,7 +385,7 @@ namespace WebuSocket {
 		}
 		
 		
-		private Socket WebSocketHandshake (string urlSource, Action<string> OnError=null) {
+		private Socket WebSocketHandshake (string urlSource, Dictionary<string, string> additionalHeaderParams, Action<string> OnError=null) {
 			var uri = new Uri(urlSource);
 			
 			var method = "GET";
@@ -336,26 +393,19 @@ namespace WebuSocket {
 			var schm = uri.Scheme;
 			var port = uri.Port;
 			
-			var agent = "testing_webuSocket_client";
 			var base64Key = GeneratePrivateBase64Key();
-			
-			Debug.LogError("wss and another features are not supported yet.");
-			/*
-				unsupporteds:
-					wss,
-					redirect,
-					proxy,
-					fragments(fin != 1) for sending & receiving.
-			*/
 			
 			var requestHeaderParams = new Dictionary<string, string>{
 				{"Host", (port == 80 && schm == "ws") || (port == 443 && schm == "wss") ? uri.DnsSafeHost : uri.Authority},
 				{"Upgrade", "websocket"},
 				{"Connection", "Upgrade"},
 				{"Sec-WebSocket-Key", base64Key},
-				{"Sec-WebSocket-Version", WEBSOCKET_VERSION},
-				{"User-Agent", agent}
+				{"Sec-WebSocket-Version", WEBSOCKET_VERSION}
 			};
+			
+			if (additionalHeaderParams != null) { 
+				foreach (var key in additionalHeaderParams.Keys) requestHeaderParams[key] = additionalHeaderParams[key];
+			}
 			
 			/*
 				construct request bytes data.
@@ -540,7 +590,7 @@ namespace WebuSocket {
 			
 			/*
 				there are not too long data.
-				"readyReadLength <= BUF_SIZE".
+				"readyReadLength <= HTTP_HEADER_LINE_BUF_SIZE".
 				
 				but it is not surpported that this socket contains data which containes "\n".
 				cut out when buffering reached to full.

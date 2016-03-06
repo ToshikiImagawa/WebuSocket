@@ -6,8 +6,26 @@ using System.Collections.Generic;
 public class WebuSocketController : MonoBehaviour {
 	WebuSocketClient webuSocket;
 	
+	string playerId = "thePlayerIdOfWebuSocket";
+	
+	private Queue<byte[]> byteQueue = new Queue<byte[]>();
+	
 	// Use this for initialization
 	void Start () {
+				
+		// Observable.EveryUpdate().Subscribe(
+		// 	_ => {
+		// 		lock (byteQueue) {
+		// 			List<byte[]> messages;
+		// 			if (0 < byteQueue.Count) {
+		// 				messages = new List<byte[]>(byteQueue);
+		// 				byteQueue.Clear();
+		// 			}
+		// 			onByteMessage(messages);
+		// 		}
+		// 	}
+		// );
+		
 		webuSocket = new WebuSocketClient(
 			"ws://127.0.0.1:80/calivers_disque_client",
 			() => {
@@ -19,25 +37,52 @@ public class WebuSocketController : MonoBehaviour {
 				// );
 			},
 			(Queue<byte[]> datas) => {
-				Debug.LogError("data received!");
+				lock (byteQueue) {
+					while (0 < datas.Count) byteQueue.Enqueue(datas.Dequeue());
+				}
 			},
 			(string closedReason) => {
 				Debug.LogError("connection closed by reason:" + closedReason);
 			},
 			(string error) => {
 				Debug.LogError("connection error:" + error);
+			},
+			new Dictionary<string, string>{
+				{"User-Agent", "testAgent"},
+				{"playerId", playerId}
 			}
 		);
+		
 		Debug.LogError("webuSocket:" + webuSocket.webSocketConnectionId);
 	}
 	
 	public void OnApplicationQuit () {
-		Debug.LogError("close!");
 		webuSocket.CloseSync();
 	}
 	
+	int frame = 0;
+	
 	// Update is called once per frame
 	void Update () {
-	
+		if (webuSocket.IsConnected()) {
+			if (frame == 100) {
+				// webuSocket.Ping();
+				// webuSocket.Ping();
+				
+				// for (var i = 0; i < 1000; i++) webuSocket.Send(new byte[]{1,2,3,4});
+				
+			}
+			frame++;
+		}
+		
+		if (0 < byteQueue.Count) {
+			lock (byteQueue) {
+				Debug.LogError("queued data count:" + byteQueue.Count);
+				foreach (var data in byteQueue) {
+					Debug.LogError("data:" + data.Length);
+				}
+				byteQueue.Clear();
+			}
+		}
 	}
 }
