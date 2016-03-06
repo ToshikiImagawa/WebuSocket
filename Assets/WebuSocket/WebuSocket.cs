@@ -226,7 +226,7 @@ namespace WebuSocket {
 		}
 		
 		private void ForceClose () {
-			if (socket == null || socket.Connected) {
+			if (socket == null || !socket.Connected) {
 				Debug.LogError("not yet connected or already closed.");
 				return;
 			}
