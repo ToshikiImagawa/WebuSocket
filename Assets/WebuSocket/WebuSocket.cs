@@ -2,28 +2,46 @@ using UnityEngine;
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Security.Cryptography;
 
+/**
+	Motivations
+	
+	・receive per frame
+		WebSocket接続後、
+		socket.receiveをフレームレートベースで一元化する。複数箇所で同時にreceiveしない。また、receiveに非同期invokeを含まない。
+		これを守らないと高負荷時にデータがおかしくなる。
+	
+	・frame based single threading
+		フレームベースだが別threadなので、本体には影響を出さない。
+		遅くなったり詰まったりするとしたら、threadの特定のフレームが時間的に膨張して、結果他の処理が後ろ倒しになる。
+		データ取得に関しては、pullベースだとこいつが応答しない時に影響出そうだな〜って感じなのでやはりpushを考えよう。
+		
+	・ordered operation
+		外部からのrequestや、内部での状態変化などは、できる限りorderedな形で扱う。
+		即時的に動くのはcloseくらい。
+*/
 namespace WebuSocket {
 	
 	public class WebuSocketClient {
 		private static RNGCryptoServiceProvider randomGen = new RNGCryptoServiceProvider();
 		
+		public readonly string webSocketConnectionId;
+		
 		private Socket socket;
 		private readonly Thread updater;
 		
 		private const string CRLF = "\r\n";
-		private const int BUF_SIZE = 1024;
+		private const int HTTP_HEADER_LINE_BUF_SIZE = 1024;
 		private const string WEBSOCKET_VERSION = "13"; 
 		
 			
-		public enum ReadyState : int {
-			Connecting,
-			Open,
+		public enum WSConnectionState : int {
+			Opening,
+			Opened,
 			Closing,
 			Closed
 		}
@@ -35,34 +53,38 @@ namespace WebuSocket {
 		private Queue<WSOrder> stackedOrders = new Queue<WSOrder>();
 		
 		private Queue<byte[]> stackedSendingDatas = new Queue<byte[]>();
-		private Queue<byte[]> stackedReceivedDatas = new Queue<byte[]>();	
+		// private Queue<byte[]> stackedReceivedPrivateDatas = new Queue<byte[]>();	
 		
 		
-		private ReadyState state;
+		private WSConnectionState state;
 		
 		
-	
-		
-		public WebuSocketClient (string protocol, string host, int port) {
-			var url = protocol + "://" + host + ":" + port + "/calivers_disque_client";
+		public WebuSocketClient (
+			string url,
+			Action OnConnected=null,
+			Action<Queue<byte[]>> OnMessage=null,
+			Action OnClosing=null,
+			Action OnClosed=null,
+			Action OnError=null
+		) {
+			this.webSocketConnectionId = Guid.NewGuid().ToString();
 			
-			// wsかwss、まずはws protocolだけサポートする。いきなり非同期でいいんじゃねーかな。
-			Debug.LogError("url:" + url);
+			state = WSConnectionState.Opening;
 			
-			Debug.LogError("非同期前提にする。なので、ここでconnectingにして返す。");
-			state = ReadyState.Connecting;
-			int i = 0;
-
+			var frame = 0;
+			
 			// thread for websocket.
 			updater = Updater(
 				"WebuSocket",
 				() => {
 					switch (state) {
-						case ReadyState.Connecting: {
-							var socketComponent = WebSocketHandshakeRequest(url);
+						case WSConnectionState.Opening: {
+							var socketComponent = WebSocketHandshake(url, OnError);
 							if (socketComponent != null) {
-								state = ReadyState.Open;
+								state = WSConnectionState.Opened;
 								this.socket = socketComponent.socket;
+								
+								if (OnConnected != null) OnConnected();
 								break;
 							}
 							
@@ -71,15 +93,12 @@ namespace WebuSocket {
 							
 							break;
 						}
-						case ReadyState.Open: {
+						case WSConnectionState.Opened: {
 							lock (socket) {
 								while (0 < socket.Available) {
-									Debug.LogError("socket.Available:" + socket.Available);
-									// ここでデータを読んじゃえばいいよね
-									// 全力でデキューしちゃって放置
 									var buff = new byte[socket.Available];
 									socket.Receive(buff);
-									stackedReceivedDatas.Enqueue(buff);
+									EnqueueReceivedData(buff);
 								}
 							}
 							
@@ -91,28 +110,27 @@ namespace WebuSocket {
 							}
 							
 							lock (stackedSendingDatas) {
-								while (state == ReadyState.Open && 0 < stackedSendingDatas.Count) {
+								while (state == WSConnectionState.Opened && 0 < stackedSendingDatas.Count) {
 									// queueに入ってるもの全部繋げて送信ってやっていいような気がするんだが、まあちゃんとやるか、、
 									var data = stackedSendingDatas.Dequeue();
 									
 									// websocketのフォーマッティングを行う。さて。
 									
 									// socket.Send
+									
+									// この途中でおっちんでも平気だと思うんだよな。
 								}
 							} 
 							
-							if (i == 100) {// 試しにgraceful close.
-								StackOrder(WSOrder.CloseGracefully);
-							}
-							
+							if (frame == 100) CloseAsync();
 							break;
 						}
-						case ReadyState.Closing: {
+						case WSConnectionState.Closing: {
 							lock (socket) {
 								while (0 < socket.Available) {
 									var buff = new byte[socket.Available];
 									socket.Receive(buff);
-									stackedReceivedDatas.Enqueue(buff);
+									EnqueueReceivedData(buff);
 								}
 							}
 							
@@ -124,14 +142,14 @@ namespace WebuSocket {
 							}
 							break;
 						}
-						case ReadyState.Closed: {
+						case WSConnectionState.Closed: {
+							if (OnClosed != null) OnClosed();
+							
 							// break this thread.
 							return false;
 						}
 					}
-					
-					i++;
-					
+					frame++;
 					return true;
 				}
 			);
@@ -140,7 +158,7 @@ namespace WebuSocket {
 		
 		public void CloseAsync () {
 			switch (state) {
-				case ReadyState.Open: {
+				case WSConnectionState.Opened: {
 					StackOrder(WSOrder.CloseGracefully);
 					break;
 				}
@@ -160,6 +178,17 @@ namespace WebuSocket {
 		
 		
 		
+		private void EnqueueReceivedData (byte[] receivedData) {
+			// １通とは限らない。複数が入ってる可能性のほうが高い。
+			
+			// 長さが書いてあるんでここで分割する + payloadごとに割ることは可能
+			// 遅いかどうかでいうとどうだろ、、ただ、コントロールであるならここで処理しないといけない。
+			// ・コントロールかどうかまではここで見極める。コントロールならExecuteしちゃっていいはず。
+			// ・あとはまあ、、しょうがねーか、長さも見る。
+			
+			
+		}
+		
 		
 		private void StackOrder (WSOrder order) {
 			lock (stackedOrders) stackedOrders.Enqueue(order);
@@ -169,7 +198,7 @@ namespace WebuSocket {
 		private void ExecuteOrder (WSOrder order) {
 			switch (order) {
 				case WSOrder.CloseGracefully: {
-					state = ReadyState.Closing;
+					state = WSConnectionState.Closing;
 					
 					// this order is final one of this thread. ignore all other orders.
 					stackedOrders.Clear();
@@ -197,34 +226,41 @@ namespace WebuSocket {
 		}
 		
 		private void ForceClose () {
-			if (state == ReadyState.Closed) {
-				Debug.LogError("already closed.");
+			if (socket == null || socket.Connected) {
+				Debug.LogError("not yet connected or already closed.");
 				return;
 			}
 			
-			state = ReadyState.Closed;
-			
-			try {
-				if (socket.Connected) {
-					socket.Close();
+			lock (socket) {
+				if (state == WSConnectionState.Closed) {
+					Debug.LogError("already closed.");
+					return;
 				}
-			} catch (Exception e) {
-				Debug.LogError("socket closing error:" + e);
-			} finally {
-				socket = null;
+				
+				try {
+					// socket.Shutdown(SocketShutdown.Send);
+					// socket.Disconnect(false);
+					socket.Close();
+				} catch (Exception e) {
+					Debug.LogError("socket closing error:" + e);
+				} finally {
+					socket = null;
+				}
+				
+				state = WSConnectionState.Closed;
 			}
 		}
-		// 別スレッドでqueueにする、とか？うーん、、どうやって渡すのを前提にしようかな、、
-		// mainThreadから実行される関数、っていうのでくるんでしまっていいような気がするんですがどうすかね。
 		
-		// 受け取り/送信threadの分解能はまあ可変かつorderedってとこで、無限でもいいわけで。
-		// 受け取ったものがqueueに入る->それを吸い取る、でいいわけで。であればpull型か、、OnMainThreadでメソッドが実行される、とかのほうがいいんだよな。
+		// 2つの問題に分ける。
 		
-		// Threadを受け取って、そこで実行されるハンドラを自分たちで置いてね、でいいか。Threadを受け取れれば、そのThreadのタイミングで処理できる。
-		// それがMainThreadかどうかはあんまり関係ない。（Thread出した側で処理すればいい。
+		// 1.queueにはデータ以外にもコントロール系のものが入ってきてる
+		// 2.queueに入ったメッセージ系データの取り出しが必須
 		
+		// これ、入れるときに判別しちゃえばいいよな。
 		
-		private SocketComponent WebSocketHandshakeRequest (string urlSource) {
+		// ユーザーが受け取るべきキューに入ったデータについては、ユーザーに送る。
+		
+		private SocketComponent WebSocketHandshake (string urlSource, Action OnError) {
 			var uri = new Uri(urlSource);
 			
 			var method = "GET";
@@ -235,13 +271,13 @@ namespace WebuSocket {
 			var agent = "testing_webuSocket_client";
 			var base64Key = GeneratePrivateBase64Key();
 			
-			Debug.LogError("wss is not supported yet.");
+			Debug.LogError("wss and another features are not supported yet.");
 			/*
 				unsupporteds:
 					wss,
 					redirect,
 					proxy,
-					
+					fragments(fin != 1) for sending & receiving.
 			*/
 			
 			var requestHeaderParams = new Dictionary<string, string>{
@@ -282,13 +318,17 @@ namespace WebuSocket {
 				sock.Connect(host, port);
 			} catch (Exception e) {
 				Debug.LogError("failed to connect to host:" + host + " error:" + e);
+				OnError();
+				
 				return null;
 			}
 			
 			if (!sock.Connected) {
 				Debug.LogError("failed to connect.");
-				sock.Close();
-				sock = null;
+				
+				ForceClose();
+				OnError();
+				
 				return null;
 			}
 			
@@ -298,14 +338,19 @@ namespace WebuSocket {
 				if (0 < result) {}// succeeded to send.
 				else {
 					Debug.LogError("failed to send connection request data, send size is 0.");
-					sock.Close();
-					sock = null;
+					
+					ForceClose();
+					OnError();
+					
 					return null;
 				}
 			} catch (Exception e) {
 				Debug.LogError("failed to send connection request data. error:" + e);
-				sock.Close();
-				sock = null;
+				
+				ForceClose();
+				OnError();
+				
+				return null;
 			}
 			
 			
@@ -313,34 +358,76 @@ namespace WebuSocket {
 			/*
 				read connection response from socket.
 			*/
-			var responceHeaderDict = WaitResponceFromServer(sock);
-			
+			var responseHeaderDict = new Dictionary<string, string>();
+			{
+				/*
+					protocol should be switched.
+				*/
+				var protocolResponse = ReadLineBytes(sock);
+				if (!string.IsNullOrEmpty(protocolResponse.error)) {
+					Debug.LogError("failed to receive response.");
+					return null;
+				}
+				
+				if (Encoding.UTF8.GetString(protocolResponse.data).ToLower() != "HTTP/1.1 101 Switching Protocols".ToLower()) {
+					Debug.LogError("failed to switch protocol.");
+					return null;
+				}
+				
+				if (sock.Available == 0) {
+					Debug.LogError("failed to receive rest of response header.");
+					return null;
+				}
+				
+				/*
+					rest data exists and can be received.
+				*/
+				while (0 < sock.Available) {
+					var responseHeaderLineBytes = ReadLineBytes(sock);
+					if (!string.IsNullOrEmpty(responseHeaderLineBytes.error)) {
+						Debug.LogError("responseHeaderLineBytes.error:" + responseHeaderLineBytes.error);
+						break;
+					}
+					
+					var responseHeaderLine = Encoding.UTF8.GetString(responseHeaderLineBytes.data);
+					
+					if (!responseHeaderLine.Contains(":")) continue;
+					
+					var splittedKeyValue = responseHeaderLine.Split(':');
+					
+					var key = splittedKeyValue[0].ToLower();
+					var val = splittedKeyValue[1];
+					
+					responseHeaderDict[key] = val;
+				}
+			}
+				
 			// validate.
-			if (!responceHeaderDict.ContainsKey("Server".ToLower())) {
+			if (!responseHeaderDict.ContainsKey("Server".ToLower())) {
 				Debug.LogError("failed to receive 'Server' key.");
 				return null;
 			}
 			
-			if (!responceHeaderDict.ContainsKey("Date".ToLower())) {
+			if (!responseHeaderDict.ContainsKey("Date".ToLower())) {
 				Debug.LogError("failed to receive 'Date' key.");
 				return null;
 			}
 			
-			if (!responceHeaderDict.ContainsKey("Connection".ToLower())) {
+			if (!responseHeaderDict.ContainsKey("Connection".ToLower())) {
 				Debug.LogError("failed to receive 'Connection' key.");
 				return null;
 			}
 			
-			if (!responceHeaderDict.ContainsKey("Upgrade".ToLower())) {
+			if (!responseHeaderDict.ContainsKey("Upgrade".ToLower())) {
 				Debug.LogError("failed to receive 'Upgrade' key.");
 				return null;
 			}
 			
-			if (!responceHeaderDict.ContainsKey("Sec-WebSocket-Accept".ToLower())) {
+			if (!responseHeaderDict.ContainsKey("Sec-WebSocket-Accept".ToLower())) {
 				Debug.LogError("failed to receive 'Sec-WebSocket-Accept' key.");
 				return null;
 			}
-			var serverAcceptedWebSocketKey = responceHeaderDict["Sec-WebSocket-Accept".ToLower()];
+			var serverAcceptedWebSocketKey = responseHeaderDict["Sec-WebSocket-Accept".ToLower()];
 			
 			
 			if (!sock.Connected) {
@@ -362,78 +449,53 @@ namespace WebuSocket {
 			}
 		}
 		
-		private Dictionary<string, string> WaitResponceFromServer (Socket sock) {
-			var responseHeaderDict = new Dictionary<string, string>();
-			
-			/*
-				protocol should be switched.
-			*/
-			var protocolResponse = ReadLineBytes(sock);
-			if (Encoding.UTF8.GetString(protocolResponse).ToLower() != "HTTP/1.1 101 Switching Protocols".ToLower()) {
-				return new Dictionary<string, string>();
-			}
-			
-			if (sock.Available == 0) {
-				Debug.LogError("failed to receive rest of response header.");
-				return new Dictionary<string, string>();
-			}
-			
-			/*
-				rest data exists and can be received.
-			*/
-			while (0 < sock.Available) {
-				var responseHeaderLineBytes = ReadLineBytes(sock);
-				var responseHeaderLine = Encoding.UTF8.GetString(responseHeaderLineBytes);
-				
-				if (!responseHeaderLine.Contains(":")) continue;
-				  
-				var splittedKeyValue = responseHeaderLine.Split(':');
-				
-				var key = splittedKeyValue[0].ToLower();
-				var val = splittedKeyValue[1];
-				
-				responseHeaderDict[key] = val;
-			}
-			
-			return responseHeaderDict;
-		}
 		
-		public byte ReadFirstByte (Socket sock) {
-			byte[] b = new byte[1];
-			sock.Receive(b);
-			return b[0];
-		}
+		private byte[] httpResponseReadBuf = new byte[HTTP_HEADER_LINE_BUF_SIZE];
 
-		public byte[] ReadLineBytes (Socket sock) {
-			var buf = new byte[BUF_SIZE];
+		public ResponseHeaderLineDataAndError ReadLineBytes (Socket sock) {
 			byte[] b = new byte[1];
 			
-			int limit = sock.Available;
-
+			var readyReadLength = sock.Available;
+			if (httpResponseReadBuf.Length < readyReadLength) {
+				new ResponseHeaderLineDataAndError(new byte[0], "too long data for read as line found");
+			} 
+			
+			/*
+				there are not too long data.
+				"readyReadLength <= BUF_SIZE".
+				
+				but it is not surpported that this socket contains data which containes "\n".
+				cut out when buffering reached to full.
+			*/
 			int i = 0;
 			while (true) {
 				sock.Receive(b);
+				
 				if (b[0] == '\r') continue;
 				if (b[0] == '\n') break;
 				
-				buf[i] = b[0];
-				
-				if (i == limit) {
-					Debug.Log("limit by Available.");
-					break;
-				}
-
-				if (i == buf.Length) {
-					Debug.Log("too large line.");
-					break;
-				}
-
+				httpResponseReadBuf[i] = b[0];
 				i++;
+				
+				if (i == readyReadLength) {
+					Debug.LogError("no \n appears. cut out.");
+					break;
+				}
 			}
+			
 			var retByte = new byte[i];
-			Array.Copy(buf, 0, retByte, 0, i);
+			Array.Copy(httpResponseReadBuf, 0, retByte, 0, i);
 
-			return retByte;
+			return new ResponseHeaderLineDataAndError(retByte);
+		}
+		
+		public struct ResponseHeaderLineDataAndError {
+			public readonly byte[] data;
+			public readonly string error;
+			public ResponseHeaderLineDataAndError (byte[] data, string error=null) {
+				this.data = data;
+				this.error = error;
+			}
 		}
 		
 		private static string GeneratePrivateBase64Key () {
@@ -449,7 +511,7 @@ namespace WebuSocket {
 		}
 		
 		private Thread Updater (string loopId, Func<bool> OnUpdate) {
-			var framePerSecond = 60;
+			var framePerSecond = 100;// fixed to 100fps.
 			var mainThreadInterval = 1000f / framePerSecond;
 			
 			Action loopMethod = () => {
@@ -465,6 +527,7 @@ namespace WebuSocket {
 							Thread.Sleep((int)(nextFrame - tickCount)/2);
 							/*
 								waitを半分くらいにすると特定フレームで安定した。
+								まるっきりよく無い。なんか指標があるんだと思うんだけど。
 							*/
 							continue;
 						}
@@ -492,53 +555,6 @@ namespace WebuSocket {
 			thread.Start();
 			return thread;
 		}
-		
-		
-		private void TCPConnect (string host, int port) {
-			this.socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-			this.socket.NoDelay = true;
-            
-			int timeout = 1000;// うーん怖い
-			
-            this.socket.SendTimeout = timeout;
-			
-			try {
-				this.socket.Connect(host, port);
-			} catch (Exception e) {
-				Debug.Log("ERROR: WebuSocketClient: failed to connect to server @:" + host + ":" + port);
-				Debug.Log("ERROR: reason:" + e);
-			}
-
-			if (!this.socket.Connected) {
-				// failed to create connection. 
-				this.socket.Close();
-				this.socket = null;
-				throw new Exception("failed to connect to server @:" + host + ":" + port);
-			}
-			
-			Debug.Log("succeedet to connect. ただしTCP");
-			
-			// self.listening = True
-			// while self.listening:
-			// 	try:
-			// 		# when teardown, causes close then "Software caused connection abort"
-			// 		(conn, addr) = self.socket.accept()
-
-			// 		identity = str(uuid.uuid4())
-
-			// 		# genereate new client
-			// 		client = WSClient(self, identity)
-					
-			// 		self.clientIds[identity] = client
-
-			// 		threading.Thread(target = client.handle, args = (conn,addr)).start()
-			// 	except socket.error as msg:
-			// 		errorMsg = "SublimeSocket WebSocketServing crashed @ " + str(self.host) + ":" + str(self.port) + " reason:" + str(msg)
-			// 		self.sublimeSocketServer.transferNoticed(errorMsg)
-		}
-		
-		
-		
 		
 	}
 }
