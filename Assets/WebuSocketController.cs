@@ -64,6 +64,11 @@ public class WebuSocketController : MonoBehaviour {
 		// webSocket.ConnectAsync();
 	}
 	
+	public void OnApplicationQuit () {
+		Debug.LogError("close!");
+		webuSocket.Close();
+	}
+	
 	// Update is called once per frame
 	void Update () {
 	
