@@ -386,6 +386,10 @@ namespace WebuSocket {
 		
 		
 		private Socket WebSocketHandshake (string urlSource, Dictionary<string, string> additionalHeaderParams, Action<string> OnError=null) {
+			Debug.LogError("handshake timeoutの値どうしようかな、、そのままsocket使うからなんか影響しそう。");
+			var timeout = 1000;
+			
+			
 			var uri = new Uri(urlSource);
 			
 			var method = "GET";
@@ -426,29 +430,23 @@ namespace WebuSocket {
 			/*
 				ready connection sockets.
 			*/
-			var timeout = 1000;
-			
 			var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 			sock.NoDelay = true;
 			sock.SendTimeout = timeout;
 			
 			Action ForceCloseSock = () => {
-				if (socket == null || !socket.Connected) {
-				if (OnError != null) OnError("not yet connected or already closed.");
-				return;
-			}
-			
-			lock (socket) {
-				try {
-					socket.Close();
-				} catch (Exception e) {
-					if (OnError != null) OnError("socket closing error:" + e);
-				} finally {
-					socket = null;
-				}
+				if (sock == null) return;
 				
-				state = WSConnectionState.Closed;
-			}
+				if (!sock.Connected) {
+					sock = null;
+					return;
+				}
+			
+				try {
+					sock.Close();
+				} catch {} finally {
+					sock = null;
+				}
 			};
 			
 			try {
@@ -567,7 +565,6 @@ namespace WebuSocket {
 				return null;
 			}
 			var serverAcceptedWebSocketKey = responseHeaderDict["Sec-WebSocket-Accept".ToLower()];
-			
 			
 			if (!sock.Connected) {
 				ForceCloseSock();
