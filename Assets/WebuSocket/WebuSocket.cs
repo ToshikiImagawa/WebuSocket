@@ -104,7 +104,6 @@ namespace WebuSocket {
 				() => {
 					lock (receivedDataQueue) {
 						
-						
 						while (0 < receivedDataQueue.Count) {
 							var wholeData = receivedDataQueue.Dequeue();
 							var messages = WebSocketByteGenerator.SplitData(wholeData);
@@ -254,7 +253,7 @@ namespace WebuSocket {
 					break;
 				}
 				default: {
-					Debug.LogError("current state is:" + state + ", send operation request is ignored.");
+					Debug.LogError("current state is:" + state + ", ping operation request is ignored.");
 					break;
 				}
 			}

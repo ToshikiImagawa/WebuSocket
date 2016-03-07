@@ -80,7 +80,6 @@ namespace WebuSocket {
 				dataLength7bit = 126;
 				dataLength16bit = (UInt16)length;
 			} else {
-				Debug.LogError("not yet done this size:" + length);
 				dataLength7bit = 127;
 				dataLength64bit = length;
 			}
@@ -97,12 +96,22 @@ namespace WebuSocket {
 					intBytes[0] = (byte)(dataLength16bit >> 8);
 					intBytes[1] = (byte)dataLength16bit;
 					
-					// dataLength16 to 2byte.
+					// dataLength16 to 2bytes.
 					dataStream.Write(intBytes, 0, intBytes.Length);
 				}
 				if (0 < dataLength64bit) {
-					// dataLength64 to 8byte.
-					// dataStream.WriteByte();
+					var intBytes = new byte[8];
+					intBytes[0] = (byte)(dataLength64bit >> (8*7));
+					intBytes[1] = (byte)(dataLength64bit >> (8*6));
+					intBytes[2] = (byte)(dataLength64bit >> (8*5));
+					intBytes[3] = (byte)(dataLength64bit >> (8*4));
+					intBytes[4] = (byte)(dataLength64bit >> (8*3));
+					intBytes[5] = (byte)(dataLength64bit >> (8*2));
+					intBytes[6] = (byte)(dataLength64bit >> 8);
+					intBytes[7] = (byte)dataLength64bit;
+					
+					// dataLength64 to 8bytes.
+					dataStream.Write(intBytes, 0, intBytes.Length);
 				}
 				
 				// should mask control frame.
@@ -147,7 +156,16 @@ namespace WebuSocket {
 					}
 					case 127: {
 						// next 8 byte is length data.
-						Debug.LogError("読み込む2。未実装。");
+						length = (uint)(
+							(data[cursor++] << (8*7)) +
+							(data[cursor++] << (8*6)) +
+							(data[cursor++] << (8*5)) +
+							(data[cursor++] << (8*4)) +
+							(data[cursor++] << (8*3)) +
+							(data[cursor++] << (8*2)) +
+							(data[cursor++] << 8) +
+							(data[cursor++])
+						);
 						break;
 					}
 					default: {
@@ -155,7 +173,7 @@ namespace WebuSocket {
 					}
 				}
 				
-				if (length == 0) {//サイズ読むのに失敗するとここにきちゃうな、、
+				if (length == 0) {
 					opCodeAndPayloads.Add(new OpCodeAndPayload(opCode));
 					continue;
 				}

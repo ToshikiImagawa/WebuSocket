@@ -65,20 +65,20 @@ public class WebuSocketController : MonoBehaviour {
 	// Update is called once per frame
 	void Update () {
 		if (webuSocket.IsConnected()) {
-			if (frame == 50) {
-				Debug.LogError("start 50");
-				// ping on frame.
-				// webuSocket.Ping();
-				// webuSocket.Ping();
+			// if (frame == 50) {
+			// 	Debug.LogError("start 50");
+			// 	// ping on frame.
+			// 	webuSocket.Ping();
+			// 	webuSocket.Ping();
 				
-				// 1000 message per frame without stall.
-				// for (var i = 0; i < 1000; i++) webuSocket.Send(new byte[]{1,2,3,4});
+			// 	// 1000 message per frame without stall.
+			// 	for (var i = 0; i < 1000; i++) webuSocket.Send(new byte[]{1,2,3,4});
 				
-				// 126 bytes.
-				// var data126 = new byte[126];
-				// for (var i = 0; i < data126.Length; i++) data126[i] = 1;
-				// webuSocket.Send(data126);
-			}
+			// 	// 126 bytes.
+			// 	var data126 = new byte[126];
+			// 	for (var i = 0; i < data126.Length; i++) data126[i] = 1;
+			// 	webuSocket.Send(data126);
+			// }
 			
 			if (frame == 100) {
 				Debug.LogError("start 100");
@@ -86,6 +86,7 @@ public class WebuSocketController : MonoBehaviour {
 				for (var i = 0; i < data65535.Length; i++) data65535[i] = 1;
 				webuSocket.Send(data65535);
 			}
+			// サーバ側のライブラリの受け取り最大値は65535らしい。
 			
 			frame++;
 		}
