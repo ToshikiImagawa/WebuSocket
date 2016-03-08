@@ -10,6 +10,10 @@ using WebuSocket;
 
 public class TestRunner {
 	[MenuItem("WebuSocketTest/RunTests")] public static void RunTests () {
+		/*
+			note that this tests requires echo WebSocket server.
+			And Server code is not contained this repo yet.
+		*/
 		var testRunner = new TestRunner();
 	}
 	
