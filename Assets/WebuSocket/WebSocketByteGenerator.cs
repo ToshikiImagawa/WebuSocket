@@ -5,16 +5,6 @@ using UnityEngine;
 
 namespace WebuSocket {
 	public static class WebSocketByteGenerator {
-		/*
-			send 125	ok
-			send 126	ok
-			send 127	not yet impl.
-			
-			read 125	ok
-			read 126	ok
-			read 127	not yet impl.
-		*/
-		
 		// #0                   1                   2                   3
 		// #0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// #+-+-+-+-+-------+-+-------------+-------------------------------+

@@ -78,7 +78,7 @@ namespace WebuSocket {
 			Action<string> OnError,
 			Dictionary<string, string> additionalHeaderParams=null
 		) {
-			Debug.LogError("wss and another features are not supported yet.");
+			Debug.LogWarning("wss and another features are not supported yet.");
 			/*
 				unsupporteds:
 					wss,
@@ -100,6 +100,7 @@ namespace WebuSocket {
 				thread for process the queue of received data.
 			*/
 			var receivedDataQueueProcessor = Updater(
+				0,
 				"WebuSocket-process-thread",
 				() => {
 					lock (receivedDataQueue) {
@@ -144,6 +145,7 @@ namespace WebuSocket {
 				main thread for websocket data receiving & sending.
 			*/
 			updater = Updater(
+				0,
 				"WebuSocket-main-thread",
 				() => {
 					switch (state) {
@@ -385,7 +387,7 @@ namespace WebuSocket {
 		
 		
 		private Socket WebSocketHandshake (string urlSource, Dictionary<string, string> additionalHeaderParams, Action<string> OnError=null) {
-			Debug.LogError("handshake timeoutの値どうしようかな、、そのままsocket使うからなんか影響しそう。");
+			Debug.LogWarning("handshake timeoutの値どうしようかな、、そのままsocket使うからなんか影響しそう。");
 			var timeout = 1000;
 			
 			
@@ -634,7 +636,8 @@ namespace WebuSocket {
 			return maskingKeyBytes;
 		}
 		
-		private Thread Updater (string loopId, Func<bool> OnUpdate, Action<string> OnClosed=null) {
+		private Thread Updater (int throttle, string loopId, Func<bool> OnUpdate, Action<string> OnClosed=null) {
+			Debug.LogWarning("throttleまだ使ってない。");
 			Action loopMethod = () => {
 				try {
 					while (true) {
