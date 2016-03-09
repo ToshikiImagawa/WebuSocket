@@ -37,6 +37,11 @@ public class TestRunner {
 			
 			// multiple receive
 			new Test_2_0_TwoPingReceivedOnSameFrame(),
+			new Test_2_1_TwoSmall125MessageReceivedOnSameFrame(),
+			new Test_2_2_Two125_126MessageReceivedOnSameFrame(),
+			new Test_2_3_Two127_127MessageReceivedOnSameFrame(),
+			new Test_2_4_Two128_128MessageReceivedOnSameFrame(),
+			new Test_2_5_FiveHandledMiddleSizeMessageReceivedOnSameFrame(),
 		};
 		
 		Start();
@@ -59,7 +64,7 @@ public class TestRunner {
 	}
 
     private IEnumerator Setup (WebuSocketClient webuSocket, ITestCase test) {
-		Debug.LogError("test:" + test.ToString() + " started,");
+		Debug.LogWarning("test:" + test.ToString() + " started,");
 		
 		var optionalParams = test.OnOptionalSettings();
 		var throttle = optionalParams.throttle;
@@ -90,7 +95,7 @@ public class TestRunner {
 		}
 		
 		// closed.
-		Debug.LogError("test:" + test.ToString() + " overed.");
+		Debug.LogWarning("test:" + test.ToString() + " overed.");
     }
 	
 	private void Teardown (WebuSocketClient webuSocket) {
@@ -142,7 +147,7 @@ public class TestRunner {
 					
 					testFrameCount++;
 					
-					// wait 5sec for timeout.
+					// wait 5sec for timeout. 
 					if (60 * 5 < testFrameCount) {
 						Debug.LogError("timeout:" + test.ToString());
 						break;

@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Security.Cryptography;
+using System.Linq;
 
 /**
 	Motivations
@@ -69,7 +70,7 @@ namespace WebuSocket {
 		
 		private Queue<byte[]> stackedSendingDatas = new Queue<byte[]>();
 		
-		private Queue<byte[]> receivedDataQueue = new Queue<byte[]>();
+		private List<byte[]> receivedDataList = new List<byte[]>();
 		
 		private WSConnectionState state;
 		
@@ -100,6 +101,8 @@ namespace WebuSocket {
 			
 			Queue<byte[]> messageQueue = new Queue<byte[]>();
 			
+			
+			var stackedBytes = new byte[0];
 			/*
 				thread for process the queue of received data.
 			*/
@@ -107,14 +110,38 @@ namespace WebuSocket {
 				throttle,
 				"WebuSocket-consumer-thread",
 				() => {
-					lock (receivedDataQueue) {
-						
-						while (0 < receivedDataQueue.Count) {
-							var wholeData = receivedDataQueue.Dequeue();
-							var messages = WebSocketByteGenerator.SplitData(wholeData);
+					lock (receivedDataList) {
+						if (0 < receivedDataList.Count) {
+							// ここでstackQueueにあっさりとaddしてしまうのはありか。
+							var totalLength = receivedDataList.Select(list => list.Length).Sum();
 							
-							foreach (var message in messages) {
-								switch (message.opCode) {
+							Debug.LogError("totalLength:" + totalLength);
+							
+							var index = stackedBytes.Length;
+							
+							var s = stackedBytes;
+							stackedBytes = new byte[s.Length + totalLength];
+							if (0 < s.Length) {
+								Debug.LogError("data exists. before data s:" + s.Length);
+								Array.Copy(s, 0, stackedBytes, 0, s.Length);
+							}
+							
+							// add incoming datas.
+							foreach (var receivedData in receivedDataList) {
+								Array.Copy(receivedData, 0, stackedBytes, index, receivedData.Length);
+								index = index + receivedData.Length;
+							}
+							
+							receivedDataList.Clear();
+							
+							var wholeData = stackedBytes;
+							
+							var messageIndexies = WebSocketByteGenerator.GetIndexies(wholeData);
+							
+							for (var i = 0; i < messageIndexies.Count; i++) {
+								var messageIndex = messageIndexies[i];
+								
+								switch (messageIndex.opCode) {
 									case WebSocketByteGenerator.OP_PING: {
 										StackOrder(WSOrder.Pong);
 										break;
@@ -128,13 +155,27 @@ namespace WebuSocket {
 										break;
 									}
 									case WebSocketByteGenerator.OP_BINARY: {
-										if (OnMessage != null) messageQueue.Enqueue(message.payload);  
+										if (OnMessage != null) messageQueue.Enqueue(wholeData.SubArray(messageIndex.start, messageIndex.length));
 										break;
 									}
 									case WebSocketByteGenerator.OP_CLOSE: {
 										if (OnError != null) OnError("closed by server.");
 										Close();
 										break;
+									}
+								}
+								
+								if (messageIndexies.Count == 0) {// このケース必ずあるはず、でかすぎて一件も分解できないやつ。
+									Debug.LogError("empty, " + messageIndexies.Count);
+								}
+								
+								// check last index position of message. should be just consumed or not.
+								if (i == messageIndexies.Count - 1) {
+									var lastDataIndex = messageIndex.start + messageIndex.length;// こっからデータ長までをコピーしとけばいい。
+									stackedBytes = new byte[wholeData.Length - lastDataIndex];
+									if (0 < stackedBytes.Length) {
+										Debug.LogError("copy for next.");
+										Array.Copy(wholeData, lastDataIndex, stackedBytes, 0, stackedBytes.Length);
 									}
 								}
 							}
@@ -178,7 +219,7 @@ namespace WebuSocket {
 								while (0 < socket.Available) {
 									var buff = new byte[socket.Available];
 									socket.Receive(buff);
-									lock (receivedDataQueue) receivedDataQueue.Enqueue(buff);
+									lock (receivedDataList) receivedDataList.Add(buff);
 								}
 							}
 							
@@ -204,7 +245,7 @@ namespace WebuSocket {
 								while (0 < socket.Available) {
 									var buff = new byte[socket.Available];
 									socket.Receive(buff);
-									lock (receivedDataQueue) receivedDataQueue.Enqueue(buff);
+									lock (receivedDataList) receivedDataList.Add(buff);
 								}
 							}
 							
