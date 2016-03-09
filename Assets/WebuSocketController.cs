@@ -47,6 +47,7 @@ public class WebuSocketController : MonoBehaviour {
 			(string error) => {
 				Debug.LogError("connection error:" + error);
 			},
+			0,
 			new Dictionary<string, string>{
 				{"User-Agent", "testAgent"},
 				{"playerId", playerId}

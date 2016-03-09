@@ -55,6 +55,10 @@ namespace WebuSocket {
 			Closed
 		}
 		
+		private Action OnPong = () => {
+			// do nothing.
+		};
+		
 		private enum WSOrder : int {
 			Ping,
 			Pong,
@@ -69,13 +73,13 @@ namespace WebuSocket {
 		
 		private WSConnectionState state;
 		
-		
 		public WebuSocketClient (
 			string url,
 			Action OnConnected,
 			Action<Queue<byte[]>> OnMessage,
 			Action<string> OnClosed,
 			Action<string> OnError,
+			int throttle=0,
 			Dictionary<string, string> additionalHeaderParams=null
 		) {
 			Debug.LogWarning("wss and another features are not supported yet.");
@@ -99,9 +103,9 @@ namespace WebuSocket {
 			/*
 				thread for process the queue of received data.
 			*/
-			var receivedDataQueueProcessor = Updater(
-				0,
-				"WebuSocket-process-thread",
+			var receivedDataQueueConsumer = Updater(
+				throttle,
+				"WebuSocket-consumer-thread",
 				() => {
 					lock (receivedDataQueue) {
 						
@@ -116,7 +120,11 @@ namespace WebuSocket {
 										break;
 									}
 									case WebSocketByteGenerator.OP_PONG: {
-										// do nothing.
+										if (OnPong != null) OnPong();
+										break;
+									}
+									case WebSocketByteGenerator.OP_TEXT: {
+										Debug.LogError("text data is ignored.");
 										break;
 									}
 									case WebSocketByteGenerator.OP_BINARY: {
@@ -145,7 +153,7 @@ namespace WebuSocket {
 				main thread for websocket data receiving & sending.
 			*/
 			updater = Updater(
-				0,
+				throttle,
 				"WebuSocket-main-thread",
 				() => {
 					switch (state) {
@@ -210,7 +218,7 @@ namespace WebuSocket {
 						}
 						case WSConnectionState.Closed: {
 							// break queue processor thread.
-							receivedDataQueueProcessor.Abort();
+							receivedDataQueueConsumer.Abort();
 							
 							// break this thread.
 							return false;
@@ -248,9 +256,10 @@ namespace WebuSocket {
 			}
 		}
 		
-		public void Ping () {
+		public void Ping (Action NewOnPong=null) {
 			switch (state) {
 				case WSConnectionState.Opened: {
+					if (NewOnPong != null) this.OnPong = NewOnPong;
 					StackOrder(WSOrder.Ping);
 					break;
 				}
@@ -636,28 +645,74 @@ namespace WebuSocket {
 			return maskingKeyBytes;
 		}
 		
+		/**
+			2 loop type.
+			switched by throttle.
+		*/
 		private Thread Updater (int throttle, string loopId, Func<bool> OnUpdate, Action<string> OnClosed=null) {
-			Debug.LogWarning("throttleまだ使ってない。");
-			Action loopMethod = () => {
-				try {
-					while (true) {
-						// run action for update.
-						var continuation = OnUpdate();
-						if (!continuation) break;
+			Action loopMethod = null;
+			
+			// limited frame update.
+			if (0 < throttle) {
+				var framePerSecond =throttle;
+				var mainThreadInterval = 1000f / framePerSecond;
+				
+				loopMethod = () => {
+					try {
+						double nextFrame = (double)System.Environment.TickCount;
 						
-						Thread.Sleep(1);
+						var before = 0.0;
+						var tickCount = (double)System.Environment.TickCount;
+						
+						while (true) {
+							tickCount = System.Environment.TickCount * 1.0;
+							if (nextFrame - tickCount > 1) {
+								Thread.Sleep((int)(nextFrame - tickCount)/2);
+								/*
+									waitを半分くらいにすると特定フレームで安定する。よくない。
+								*/
+								continue;
+							}
+							
+							if (tickCount >= nextFrame + mainThreadInterval) {
+								nextFrame += mainThreadInterval;
+								continue;
+							}
+							
+							// run action for update.
+							var continuation = OnUpdate();
+							if (!continuation) break;
+							
+							nextFrame += mainThreadInterval;
+							before = tickCount;
+						}
+						
+						if (OnClosed != null) OnClosed("WebuSocket:" + webSocketConnectionId + " loopId:" + loopId + " is finished gracefully.");
+					} catch (Exception e) {
+						if (OnClosed != null) OnClosed("WebuSocket:" + webSocketConnectionId + " loopId:" + loopId + " finished with error:" + e);
 					}
-					
-					if (OnClosed != null) OnClosed("WebuSocket:" + webSocketConnectionId + " loopId:" + loopId + " is finished gracefully.");
-				} catch (Exception e) {
-					if (OnClosed != null) OnClosed("WebuSocket:" + webSocketConnectionId + " loopId:" + loopId + " finished with error:" + e);
-				}
-			};
+				};
+			} else {
+				loopMethod = () => {
+					try {
+						while (true) {
+							// run action for update.
+							var continuation = OnUpdate();
+							if (!continuation) break;
+							
+							Thread.Sleep(1);
+						}
+						
+						if (OnClosed != null) OnClosed("WebuSocket:" + webSocketConnectionId + " loopId:" + loopId + " is finished gracefully.");
+					} catch (Exception e) {
+						if (OnClosed != null) OnClosed("WebuSocket:" + webSocketConnectionId + " loopId:" + loopId + " finished with error:" + e);
+					}
+				};
+			}
 			
 			var thread = new Thread(new ThreadStart(loopMethod));
 			thread.Start();
 			return thread;
 		}
-		
 	}
 }

@@ -26,6 +26,17 @@ public class TestRunner {
 			new Test_0_3_SizeMatching_65534(),
 			new Test_0_4_SizeMatching_65535(),
 			new Test_0_5_SizeMatching_14140(),
+			
+			// with throttle
+			new Test_1_0_OrderAndDataShouldMatchWithThrottle(),
+			new Test_1_1_SizeMatching_126WithThrottle(),
+			new Test_1_2_SizeMatching_127WithThrottle(),
+			new Test_1_3_SizeMatching_65534WithThrottle(),
+			new Test_1_4_SizeMatching_65535WithThrottle(),
+			new Test_1_5_SizeMatching_14140WithThrottle(),
+			
+			// multiple receive
+			new Test_2_0_TwoPingReceivedOnSameFrame(),
 		};
 		
 		Start();
@@ -48,7 +59,11 @@ public class TestRunner {
 	}
 
     private IEnumerator Setup (WebuSocketClient webuSocket, ITestCase test) {
-		var done = false;
+		Debug.LogError("test:" + test.ToString() + " started,");
+		
+		var optionalParams = test.OnOptionalSettings();
+		var throttle = optionalParams.throttle;
+		var hearderValues = optionalParams.headerValues;
 		
 		webuSocket = new WebuSocketClient(
 			"ws://127.0.0.1:80/calivers_disque_client",
@@ -57,7 +72,6 @@ public class TestRunner {
 			},
 			datas => {
 				test.OnReceived(webuSocket, datas);
-				done = true;
 			},
 			closeReason => {
 				Debug.LogWarning("closeReason:" + closeReason);
@@ -67,17 +81,16 @@ public class TestRunner {
 			}
 		);
 		
-		while (!done) {
+		while (webuSocket.IsConnected()) {
 			yield return null;
 		}
-		
-		webuSocket.Close();
 		
 		while (webuSocket.State() != WebuSocketClient.WSConnectionState.Closed) {
 			yield return null;
 		}
 		
 		// closed.
+		Debug.LogError("test:" + test.ToString() + " overed.");
     }
 	
 	private void Teardown (WebuSocketClient webuSocket) {
@@ -94,8 +107,6 @@ public class TestRunner {
 		var mainThreadInterval = 1000f / framePerSecond;
 		
 		var test = tests[0];
-		Debug.LogError("test:" + test.ToString() + " started,");
-		
 		Action loopMethod = () => {
 			try {
 				var enumeration = Setup(webuSocket, test);
