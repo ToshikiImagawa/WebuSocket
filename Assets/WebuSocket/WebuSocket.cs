@@ -6,7 +6,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Security.Cryptography;
-using System.Linq;
+
 
 /**
 	Motivations
@@ -79,7 +79,7 @@ namespace WebuSocket {
 			Action OnConnected,
 			Action<Queue<byte[]>> OnMessage,
 			Action<string> OnClosed,
-			Action<string> OnError,
+			Action<string, Exception> OnError,
 			int throttle=0,
 			Dictionary<string, string> additionalHeaderParams=null
 		) {
@@ -102,7 +102,12 @@ namespace WebuSocket {
 			Queue<byte[]> messageQueue = new Queue<byte[]>();
 			
 			
+			/*
+				stack of data which received header and half of payload.
+				this is local valuable and never access to this instance from outside of consumer thread.
+			*/
 			var stackedBytes = new byte[0];
+			
 			/*
 				thread for process the queue of received data.
 			*/
@@ -112,31 +117,42 @@ namespace WebuSocket {
 				() => {
 					lock (receivedDataList) {
 						if (0 < receivedDataList.Count) {
-							// ここでstackQueueにあっさりとaddしてしまうのはありか。
-							var totalLength = receivedDataList.Select(list => list.Length).Sum();
+							/*
+								start concatinate.
+								new data is 
+									stacket bytes + new data bytes.
+							*/
+							var totalLength = 0;
+							foreach (var data in receivedDataList) totalLength = totalLength + data.Length;
 							
-							Debug.LogError("totalLength:" + totalLength);
+							var dataIndex = stackedBytes.Length;
+							var stackedBytesBuckup = stackedBytes;
 							
-							var index = stackedBytes.Length;
+							// このへん一応試験実装。resizeもO(n)なので1度だと大差なさそうなんだけど。
+							/*
+								renew stackedBytes to 
+							*/
+							stackedBytes = new byte[stackedBytesBuckup.Length + totalLength];
+							if (0 < stackedBytesBuckup.Length) Buffer.BlockCopy(stackedBytesBuckup, 0, stackedBytes, 0, stackedBytesBuckup.Length);
 							
-							var s = stackedBytes;
-							stackedBytes = new byte[s.Length + totalLength];
-							if (0 < s.Length) {
-								Debug.LogError("data exists. before data s:" + s.Length);
-								Array.Copy(s, 0, stackedBytes, 0, s.Length);
-							}
-							
-							// add incoming datas.
+							// read all incoming datas. adding to stackedBytes.
 							foreach (var receivedData in receivedDataList) {
-								Array.Copy(receivedData, 0, stackedBytes, index, receivedData.Length);
-								index = index + receivedData.Length;
+								Buffer.BlockCopy(receivedData, 0, stackedBytes, dataIndex, receivedData.Length);
+								dataIndex = dataIndex + receivedData.Length;
 							}
 							
+							// consume all received data.
 							receivedDataList.Clear();
 							
+							
+							/*
+								start reading.
+							*/
 							var wholeData = stackedBytes;
 							
 							var messageIndexies = WebSocketByteGenerator.GetIndexies(wholeData);
+							
+							
 							
 							for (var i = 0; i < messageIndexies.Count; i++) {
 								var messageIndex = messageIndexies[i];
@@ -155,34 +171,34 @@ namespace WebuSocket {
 										break;
 									}
 									case WebSocketByteGenerator.OP_BINARY: {
-										if (OnMessage != null) messageQueue.Enqueue(wholeData.SubArray(messageIndex.start, messageIndex.length));
+										messageQueue.Enqueue(wholeData.SubArray(messageIndex.start, messageIndex.length));
 										break;
 									}
 									case WebSocketByteGenerator.OP_CLOSE: {
-										if (OnError != null) OnError("closed by server.");
+										if (OnError != null) OnError("closed by server.", null);
 										Close();
 										break;
 									}
 								}
-								
-								if (messageIndexies.Count == 0) {// このケース必ずあるはず、でかすぎて一件も分解できないやつ。
-									Debug.LogError("empty, " + messageIndexies.Count);
-								}
-								
-								// check last index position of message. should be just consumed or not.
-								if (i == messageIndexies.Count - 1) {
-									var lastDataIndex = messageIndex.start + messageIndex.length;// こっからデータ長までをコピーしとけばいい。
-									stackedBytes = new byte[wholeData.Length - lastDataIndex];
-									if (0 < stackedBytes.Length) {
-										Debug.LogError("copy for next.");
-										Array.Copy(wholeData, lastDataIndex, stackedBytes, 0, stackedBytes.Length);
-									}
-								}
+							}
+							
+							uint lastDataIndex = 0;
+							if (0 < messageIndexies.Count) lastDataIndex = messageIndexies[messageIndexies.Count-1].start + messageIndexies[messageIndexies.Count-1].length;
+							
+							// fill stackedBytes with rest of partial message data.
+							// will be 0 < length if fragment exists. or just 0.
+							stackedBytes = new byte[wholeData.Length - lastDataIndex];
+							
+							// stack rest data into stackedBytes.
+							if (0 < stackedBytes.Length) {
+								// Debug.LogError("rest:" + stackedBytes.Length);
+								Array.Copy(wholeData, lastDataIndex, stackedBytes, 0, stackedBytes.Length);
 							}
 						}
 						
+						// emit messages.
 						if (0 < messageQueue.Count) {
-							OnMessage(messageQueue);
+							if (OnMessage != null) OnMessage(messageQueue);
 							messageQueue.Clear();
 						}
 						return true;
@@ -392,18 +408,30 @@ namespace WebuSocket {
 		}
 		
 		
-		private void TrySend (byte[] data, Action<string> OnError=null) {
+		private void TrySend (byte[] data, Action<string, Exception> OnError=null) {
 			try {
 				socket.Send(data);
-			} catch (Exception e0) {
-				if (OnError != null) OnError("TrySend failed:" + e0 + ". attempt to close forcely.");
+			} catch (SocketException e0) {
+				switch (e0.SocketErrorCode) {
+					case SocketError.WouldBlock: {
+						if (OnError != null) OnError("failed to send data by SocketException:" + e0, e0);
+						return;
+					}
+					default: {
+						if (OnError != null) OnError("failed to send data by SocketException:" + e0 + ". attempt to close forcely.", e0);
+						ForceClose(OnError);
+						return;
+					}
+				}
+			} catch (Exception e1) {
+				if (OnError != null) OnError("failed to send data. " + e1 + ". attempt to close forcely.", e1);
 				ForceClose(OnError);
 			}
 		}
 		
-		private void ForceClose (Action<string> OnError=null, Action<string> OnClosed=null) {
+		private void ForceClose (Action<string, Exception> OnError=null, Action<string> OnClosed=null) {
 			if (state == WSConnectionState.Closed) {
-				if (OnError != null) OnError("already closed.");
+				if (OnError != null) OnError("already closed.", null);
 				return;
 			}
 			
@@ -413,12 +441,12 @@ namespace WebuSocket {
 			}
 			
 			if (socket == null) {
-				if (OnError != null) OnError("not yet connected or already closed.");
+				if (OnError != null) OnError("not yet connected or already closed.", null);
 				return;
 			}
 			
 			if (!socket.Connected) {
-				if (OnError != null) OnError("connection is already closed.");
+				if (OnError != null) OnError("connection is already closed.", null);
 				return;
 			}
 			
@@ -426,7 +454,7 @@ namespace WebuSocket {
 				try {
 					socket.Close();
 				} catch (Exception e) {
-					if (OnError != null) OnError("socket closing error:" + e);
+					if (OnError != null) OnError("socket closing error:" + e, e);
 				} finally {
 					socket = null;
 				}
@@ -436,7 +464,7 @@ namespace WebuSocket {
 		}
 		
 		
-		private Socket WebSocketHandshake (string urlSource, Dictionary<string, string> additionalHeaderParams, Action<string> OnError=null) {
+		private Socket WebSocketHandshake (string urlSource, Dictionary<string, string> additionalHeaderParams, Action<string, Exception> OnError=null) {
 			Debug.LogWarning("handshake timeoutの値どうしようかな、、そのままsocket使うからなんか影響しそう。");
 			var timeout = 1000;
 			
@@ -504,13 +532,13 @@ namespace WebuSocket {
 				sock.Connect(host, port);
 			} catch (Exception e) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to connect to host:" + host + " error:" + e);
+				if (OnError != null) OnError("failed to connect to host:" + host + " error:" + e, e);
 				return null;
 			}
 			
 			if (!sock.Connected) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to connect.");
+				if (OnError != null) OnError("failed to connect.", null);
 				return null;
 			}
 			
@@ -520,14 +548,14 @@ namespace WebuSocket {
 				if (0 < result) {}// succeeded to send.
 				else {
 					ForceCloseSock();
-					if (OnError != null) OnError("failed to send handshake request data, send size is 0.");
+					if (OnError != null) OnError("failed to send handshake request data, send size is 0.", null);
 					
 					return null;
 				}
 			} catch (Exception e) {
 				
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to send handshake request data. error:" + e);
+				if (OnError != null) OnError("failed to send handshake request data. error:" + e, e);
 				
 				return null;
 			}
@@ -545,19 +573,19 @@ namespace WebuSocket {
 				var protocolResponse = ReadLineBytes(sock);
 				if (!string.IsNullOrEmpty(protocolResponse.error)) {
 					ForceCloseSock();
-					if (OnError != null) OnError("failed to receive response.");
+					if (OnError != null) OnError("failed to receive response.", null);
 					return null;
 				}
 				
 				if (Encoding.UTF8.GetString(protocolResponse.data).ToLower() != "HTTP/1.1 101 Switching Protocols".ToLower()) {
 					ForceCloseSock();
-					if (OnError != null) OnError("failed to switch protocol.");
+					if (OnError != null) OnError("failed to switch protocol.", null);
 					return null;
 				}
 				
 				if (sock.Available == 0) {
 					ForceCloseSock();
-					if (OnError != null) OnError("failed to receive rest of response header.");
+					if (OnError != null) OnError("failed to receive rest of response header.", null);
 					return null;
 				}
 				
@@ -568,7 +596,7 @@ namespace WebuSocket {
 					var responseHeaderLineBytes = ReadLineBytes(sock);
 					if (!string.IsNullOrEmpty(responseHeaderLineBytes.error)) {
 						ForceCloseSock();
-						if (OnError != null) OnError("responseHeaderLineBytes.error:" + responseHeaderLineBytes.error);
+						if (OnError != null) OnError("responseHeaderLineBytes.error:" + responseHeaderLineBytes.error, null);
 						return null;
 					}
 					
@@ -588,38 +616,38 @@ namespace WebuSocket {
 			// validate.
 			if (!responseHeaderDict.ContainsKey("Server".ToLower())) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to receive 'Server' key.");
+				if (OnError != null) OnError("failed to receive 'Server' key.", null);
 				return null;
 			}
 			
 			if (!responseHeaderDict.ContainsKey("Date".ToLower())) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to receive 'Date' key.");
+				if (OnError != null) OnError("failed to receive 'Date' key.", null);
 				return null;
 			}
 			
 			if (!responseHeaderDict.ContainsKey("Connection".ToLower())) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to receive 'Connection' key.");
+				if (OnError != null) OnError("failed to receive 'Connection' key.", null);
 				return null;
 			}
 			
 			if (!responseHeaderDict.ContainsKey("Upgrade".ToLower())) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to receive 'Upgrade' key.");
+				if (OnError != null) OnError("failed to receive 'Upgrade' key.", null);
 				return null;
 			}
 			
 			if (!responseHeaderDict.ContainsKey("Sec-WebSocket-Accept".ToLower())) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to receive 'Sec-WebSocket-Accept' key.");
+				if (OnError != null) OnError("failed to receive 'Sec-WebSocket-Accept' key.", null);
 				return null;
 			}
 			var serverAcceptedWebSocketKey = responseHeaderDict["Sec-WebSocket-Accept".ToLower()];
 			
 			if (!sock.Connected) {
 				ForceCloseSock();
-				if (OnError != null) OnError("failed to check connected after validate.");
+				if (OnError != null) OnError("failed to check connected after validate.", null);
 				return null;
 			}
 			

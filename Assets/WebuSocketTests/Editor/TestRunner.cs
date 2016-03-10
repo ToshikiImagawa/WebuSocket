@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
@@ -41,7 +42,10 @@ public class TestRunner {
 			new Test_2_2_Two125_126MessageReceivedOnSameFrame(),
 			new Test_2_3_Two127_127MessageReceivedOnSameFrame(),
 			new Test_2_4_Two128_128MessageReceivedOnSameFrame(),
-			new Test_2_5_FiveHandledMiddleSizeMessageReceivedOnSameFrame(),
+			new Test_2_5_LargeSizeMessageReceived(),
+			
+			// detect disconnection
+			
 		};
 		
 		Start();
@@ -81,8 +85,11 @@ public class TestRunner {
 			closeReason => {
 				Debug.LogWarning("closeReason:" + closeReason);
 			},
-			errorReason => {
+			(errorReason, exception) => {
 				Debug.LogError("errorReason:" + errorReason);
+				if (exception != null) {
+					if (exception.GetType() == typeof(SocketException)) Debug.LogError("SocketErrorCode:" + ((SocketException)exception).SocketErrorCode);
+				}
 			}
 		);
 		

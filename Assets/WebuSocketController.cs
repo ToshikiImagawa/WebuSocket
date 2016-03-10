@@ -2,6 +2,8 @@
 using System.Collections;
 using WebuSocket;
 using System.Collections.Generic;
+using System;
+using System.Net.Sockets;
 
 public class WebuSocketController : MonoBehaviour {
 	WebuSocketClient webuSocket;
@@ -44,8 +46,11 @@ public class WebuSocketController : MonoBehaviour {
 			(string closedReason) => {
 				Debug.LogError("connection closed by reason:" + closedReason);
 			},
-			(string error) => {
-				Debug.LogError("connection error:" + error);
+			(string errorMessage, Exception e) => {
+				Debug.LogError("connection error:" + errorMessage);
+				if (e != null) {
+					if (e.GetType() == typeof(SocketException)) Debug.LogError("SocketErrorCode:" + ((SocketException)e).SocketErrorCode);
+				}
 			},
 			0,
 			new Dictionary<string, string>{

@@ -146,12 +146,17 @@ public class Test_2_4_Two128_128MessageReceivedOnSameFrame : ITestCase {
 	}
 }
 
-public class Test_2_5_FiveHandledMiddleSizeMessageReceivedOnSameFrame : ITestCase {
+public class Test_2_5_LargeSizeMessageReceived : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
         return new OptionalSettings(0);
     }
 	
-	private int size = 43000;// 単純にluajitの耐えられる一撃の重さの限界がありそう。このあたりが限界っぽい。10k x 100 / frame
+	/*
+		このパラメータの組み合わせだと、3回に一回くらい再現できる。
+		throttle unlimited + 43000byte x 32 message at once -> refrelction server refrects -> fragmentation appears.
+	*/
+	
+	private int size = 43000;// 単純にluajitの耐えられる一回の実行の重さの限界がありそう。このあたりが限界っぽい。10k x 100 / frame
 	private int amount = 32;
 	
     public void OnConnect(WebuSocketClient webuSocket) {

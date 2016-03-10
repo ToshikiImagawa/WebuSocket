@@ -104,7 +104,7 @@ namespace WebuSocket {
 					dataStream.Write(intBytes, 0, intBytes.Length);
 				}
 				
-				// should mask control frame.
+				// client should mask control frame.
 				var maskKey = WebuSocketClient.NewMaskKey();
 				dataStream.Write(maskKey, 0, maskKey.Length);
 				
@@ -121,79 +121,10 @@ namespace WebuSocket {
 			return data;
 		}
 		
-		// public static OpCodeAndPayloadsAndRestBuffer SplitData (byte[] data) {
-		// 	var opCodeAndPayloads = new List<OpCodeAndPayload>();
-			
-		// 	var startLength = data.Length;
-			
-		// 	uint messageHead;
-		// 	uint cursor = 0;
-		// 	while (cursor < startLength) {
-		// 		messageHead = cursor;
-		// 		// first byte = fin(1), rsv1(1), rsv2(1), rsv3(1), opCode(4)
-		// 		var opCode = (byte)(data[cursor++] & OPFilter);
-				
-		// 		// second byte = mask(1), length(7)
-		// 		/*
-		// 			mask of data from server is definitely zero(0).
-		// 			ignore reading mask bit.
-		// 		*/
-		// 		uint length = (uint)data[cursor++];
-		// 		switch (length) {
-		// 			case 126: {
-		// 				// next 2 byte is length data.
-		// 				length = (uint)(
-		// 					(data[cursor++] << 8) +
-		// 					(data[cursor++])
-		// 				);
-		// 				break;
-		// 			}
-		// 			case 127: {
-		// 				// next 8 byte is length data.
-		// 				length = (uint)(
-		// 					(data[cursor++] << (8*7)) +
-		// 					(data[cursor++] << (8*6)) +
-		// 					(data[cursor++] << (8*5)) +
-		// 					(data[cursor++] << (8*4)) +
-		// 					(data[cursor++] << (8*3)) +
-		// 					(data[cursor++] << (8*2)) +
-		// 					(data[cursor++] << 8) +
-		// 					(data[cursor++])
-		// 				);
-		// 				break;
-		// 			}
-		// 			default: {
-		// 				break;
-		// 			}
-		// 		}
-				
-		// 		if (length == 0) {
-		// 			opCodeAndPayloads.Add(new OpCodeAndPayload(opCode));
-		// 			continue;
-		// 		}
-				
-		// 		if ((startLength - cursor) < length) {
-		// 			var restBuffer = new byte[startLength - messageHead];
-		// 			Array.Copy(data, messageHead, restBuffer, 0, restBuffer.Length);
-		// 			new OpCodeAndPayloadsAndRestBuffer(opCodeAndPayloads, restBuffer);
-		// 		} 
-				
-		// 		var payload = new byte[length];
-		// 		Array.Copy(data, cursor, payload, 0, payload.Length);
-		// 		cursor = cursor + length;
-				
-		// 		opCodeAndPayloads.Add(new OpCodeAndPayload(opCode, payload));
-		// 	}
-			
-		// 	return new OpCodeAndPayloadsAndRestBuffer(opCodeAndPayloads);
-		// }
-		
-		public static byte[] SubArray (this byte[] data, uint index, uint length) {
-    		var result = new byte[length];
-    		Array.Copy(data, index, result, 0, length);
-    		return result;
-		}
-		
+		/**
+			get message detail from data.
+			no copy emitted. only read data then return there indexies of messages.
+		*/
 		public static List<OpCodeAndPayloadIndex> GetIndexies (byte[] data) {
 			var opCodeAndPayloadIndexies = new List<OpCodeAndPayloadIndex>();
 			
@@ -239,10 +170,13 @@ namespace WebuSocket {
 					}
 				}
 				
-				if ((data.Length - cursor) < length) {// ここで、messageHeadから先が[余り]
-					Debug.LogError("data.Length - cursor:" + (data.Length - cursor) + " vs length:" + length);
-					break;
-				} 
+				/*
+					shortage of payload length.
+					the whole payload datas of this message is not yet read from socket.
+					
+					break indexing then store the rest = header of fragment data and half of payload.
+				*/
+				if ((data.Length - cursor) < length) break;
 				
 				if (length != 0) {
 					var payload = new byte[length];
@@ -253,18 +187,9 @@ namespace WebuSocket {
 				
 				cursor = cursor + length; 
 			}
-			Debug.LogError("data completed:" + data.Length);
+			
 			return opCodeAndPayloadIndexies;
 		}
-		
-		// public struct OpCodeAndPayload {
-		// 	public readonly byte opCode;
-		// 	public readonly byte[] payload;
-		// 	public OpCodeAndPayload (byte opCode, byte[] payload=null) {
-		// 		this.opCode = opCode;
-		// 		this.payload = payload;
-		// 	}
-		// }
 		
 		public struct OpCodeAndPayloadIndex {
 			public readonly byte opCode;
@@ -277,14 +202,10 @@ namespace WebuSocket {
 			}
 		}
 		
-		
-		// public struct OpCodeAndPayloadsAndRestBuffer {
-		// 	public readonly List<OpCodeAndPayload> opCodeAndPayloads;
-		// 	public readonly byte[] restBuffer;
-		// 	public OpCodeAndPayloadsAndRestBuffer (List<OpCodeAndPayload> opCodeAndPayloads, byte[] restBuffer=null) {
-		// 		this.opCodeAndPayloads = opCodeAndPayloads;
-		// 		this.restBuffer = restBuffer;
-		// 	}
-		// }
+		public static byte[] SubArray (this byte[] data, uint index, uint length) {
+    		var result = new byte[length];
+    		Array.Copy(data, index, result, 0, length);
+    		return result;
+		}
 	}
 }
