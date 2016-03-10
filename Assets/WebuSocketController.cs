@@ -80,7 +80,8 @@ public class WebuSocketController : MonoBehaviour {
 				// webuSocket.Send(new byte[]{0x01});
 				// webuSocket.Close();
 				
-				webuSocket.Send(new byte[]{100});
+				// webuSocket.Send(new byte[]{100});
+				webuSocket.Close();
 			}
 			
 			if (frame == 100) {

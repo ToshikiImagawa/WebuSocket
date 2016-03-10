@@ -16,11 +16,9 @@ public class ServerContext {
 	}
 	
 	private void Setup () {
+		Debug.Log("server setup is over.");
 	}
 	
-	/**
-		ServerContextの終了手続き
-	*/
 	private void Teardown () {
 	}
 	
@@ -37,7 +35,9 @@ public class ServerContext {
 		Debug.LogError("データ届いた data:" + data.Length);
 	}
 
-	public void OnDisconnected (string connectionId, byte[] data, string reason) {}
+	public void OnDisconnected (string connectionId, byte[] data, string reason) {
+		Debug.LogError("OnDisconnected:" + connectionId + " reason:" + reason);
+	}
 	
 	/**
 		publisher methods
@@ -49,6 +49,6 @@ public class ServerContext {
 	}
 
 	private static void NotYetReady (object obj, string connectionId) {
-		// XrossPeer.Log("not yet publishable.");
+		Debug.Log("not yet publishable.");
 	}
 }
