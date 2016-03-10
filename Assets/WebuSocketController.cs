@@ -13,8 +13,8 @@ public class WebuSocketController : MonoBehaviour {
 	private Queue<byte[]> byteQueue = new Queue<byte[]>();
 	
 	// Use this for initialization
-	void Start () {
-				
+	IEnumerator Start () {
+		yield return new WaitForSeconds(4);
 		// Observable.EveryUpdate().Subscribe(
 		// 	_ => {
 		// 		lock (byteQueue) {
@@ -32,6 +32,7 @@ public class WebuSocketController : MonoBehaviour {
 			"ws://127.0.0.1:80/calivers_disque_client",
 			() => {
 				Debug.LogError("connected!");
+				
 				// MainThreadDispatcher.Post(
 				// 	() => {
 				// 		Debug.LogError("connected.");
@@ -70,20 +71,20 @@ public class WebuSocketController : MonoBehaviour {
 	
 	// Update is called once per frame
 	void Update () {
-		if (webuSocket.IsConnected()) {
+		if (webuSocket != null && webuSocket.IsConnected()) {
 			if (frame == 50) {
 				Debug.LogError("start 50");
-				// // ping on frame.
-				// webuSocket.Ping();
-				// webuSocket.Ping();
+				// ping on frame.
+				// webuSocket.Ping(()=>Debug.Log("pong"));
 				
-				// // 1000 message per frame without stall.
-				// for (var i = 0; i < 1000; i++) webuSocket.Send(new byte[]{1,2,3,4});
+				// webuSocket.Send(new byte[]{0x01});
+				// webuSocket.Close();
 				
-				// // 65535bytes.
-				// var data65535 = new byte[65535];
-				// for (var i = 0; i < data65535.Length; i++) data65535[i] = 1;
-				// webuSocket.Send(data65535);
+				webuSocket.Send(new byte[]{100});
+			}
+			
+			if (frame == 100) {
+				// webuSocket.Close();
 			}
 			
 			frame++;
