@@ -12,15 +12,24 @@ public interface ITestCase {
 public struct OptionalSettings {
 	public int throttle;
 	public Dictionary<string, string> headerValues;
-	public OptionalSettings (int throttle=0, Dictionary<string, string> headerValues=null) {
+	public int timeout;
+	
+	public OptionalSettings (int throttle=0, Dictionary<string, string> headerValues=null, int timeout=60 * 5) {
 		this.throttle = throttle;
-		this. headerValues = headerValues;
+		this.headerValues = headerValues;
+		this.timeout = timeout;
+	}
+}
+
+public static class DefaultSetting {
+	public static OptionalSettings Default () {
+		return new OptionalSettings(0, null, 60*5);
 	}
 }
 
 public class Test_0_0_OrderAndDataShouldMatch : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings();
+        return DefaultSetting.Default();
     }
 	
     public void OnConnect(WebuSocketClient webuSocket) {
@@ -41,7 +50,7 @@ public class Test_0_0_OrderAndDataShouldMatch : ITestCase {
 
 public class Test_0_1_SizeMatching_126 : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings();
+        return DefaultSetting.Default();
     }
 		
     public void OnConnect(WebuSocketClient webuSocket) {
@@ -63,7 +72,7 @@ public class Test_0_1_SizeMatching_126 : ITestCase {
 
 public class Test_0_2_SizeMatching_127 : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings();
+        return DefaultSetting.Default();
     }
 	
     public void OnConnect(WebuSocketClient webuSocket) {
@@ -86,7 +95,7 @@ public class Test_0_2_SizeMatching_127 : ITestCase {
 
 public class Test_0_3_SizeMatching_65534 : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings();
+        return DefaultSetting.Default();
     }
 	
     public void OnConnect(WebuSocketClient webuSocket) {
@@ -109,7 +118,7 @@ public class Test_0_3_SizeMatching_65534 : ITestCase {
 
 public class Test_0_4_SizeMatching_65535 : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings();
+        return DefaultSetting.Default();
     }
 	
     public void OnConnect(WebuSocketClient webuSocket) {
@@ -132,7 +141,7 @@ public class Test_0_4_SizeMatching_65535 : ITestCase {
 
 public class Test_0_5_SizeMatching_14140 : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings();
+        return DefaultSetting.Default();
     }
 		
     public void OnConnect(WebuSocketClient webuSocket) {

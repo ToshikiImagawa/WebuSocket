@@ -1,5 +1,4 @@
 ﻿using UnityEngine;
-using System.Collections;
 using WebuSocket;
 using System.Collections.Generic;
 using System;
@@ -13,31 +12,13 @@ public class WebuSocketController : MonoBehaviour {
 	private Queue<byte[]> byteQueue = new Queue<byte[]>();
 	
 	// Use this for initialization
-	IEnumerator Start () {
-		yield return new WaitForSeconds(4);
-		// Observable.EveryUpdate().Subscribe(
-		// 	_ => {
-		// 		lock (byteQueue) {
-		// 			List<byte[]> messages;
-		// 			if (0 < byteQueue.Count) {
-		// 				messages = new List<byte[]>(byteQueue);
-		// 				byteQueue.Clear();
-		// 			}
-		// 			onByteMessage(messages);
-		// 		}
-		// 	}
-		// );
+	void Start () {
+		var serverURL = "ws://127.0.0.1:80/reflector_disque_client";
 		
 		webuSocket = new WebuSocketClient(
-			"ws://127.0.0.1:80/calivers_disque_client",
+			serverURL,
 			() => {
-				Debug.LogError("connected!");
-				
-				// MainThreadDispatcher.Post(
-				// 	() => {
-				// 		Debug.LogError("connected.");
-				// 	}
-				// );
+				Debug.Log("connected to server:" + serverURL);
 			},
 			(Queue<byte[]> datas) => {
 				lock (byteQueue) {
@@ -53,7 +34,7 @@ public class WebuSocketController : MonoBehaviour {
 					if (e.GetType() == typeof(SocketException)) Debug.LogError("SocketErrorCode:" + ((SocketException)e).SocketErrorCode);
 				}
 			},
-			0,
+			1,// 1/1FPS
 			new Dictionary<string, string>{
 				{"User-Agent", "testAgent"},
 				{"playerId", playerId}
@@ -61,6 +42,10 @@ public class WebuSocketController : MonoBehaviour {
 		);
 		
 		Debug.LogError("webuSocket:" + webuSocket.webSocketConnectionId);
+	}
+	
+	private void OnMessageReceived (Queue<byte[]> messages) {
+		Debug.Log("OnMessageReceived messages:" + messages.Count);
 	}
 	
 	public void OnApplicationQuit () {
@@ -73,30 +58,25 @@ public class WebuSocketController : MonoBehaviour {
 	void Update () {
 		if (webuSocket != null && webuSocket.IsConnected()) {
 			if (frame == 50) {
-				Debug.LogError("start 50");
 				// ping on frame.
-				// webuSocket.Ping(()=>Debug.Log("pong"));
+				webuSocket.Ping(()=>Debug.Log("pong"));
 				
-				// webuSocket.Send(new byte[]{0x01});
-				// webuSocket.Close();
-				
-				// webuSocket.Send(new byte[]{100});
-				webuSocket.Close();
+				webuSocket.Send(new byte[]{0x01});
 			}
 			
-			if (frame == 100) {
-				// webuSocket.Close();
+			if (frame == 300) {
+				webuSocket.Close();
 			}
 			
 			frame++;
 		}
 		
+		/*
+			receive block of message.
+		*/
 		if (0 < byteQueue.Count) {
 			lock (byteQueue) {
-				Debug.LogError("queued data count:" + byteQueue.Count);
-				foreach (var data in byteQueue) {
-					Debug.LogError("data:" + data.Length);
-				}
+				OnMessageReceived(byteQueue);
 				byteQueue.Clear();
 			}
 		}

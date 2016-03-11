@@ -45,7 +45,20 @@ public class TestRunner {
 			new Test_2_5_LargeSizeMessageReceived(),
 			
 			// detect disconnection
+			// new Test_3_0_DisconnectFromServer(),
+			new Test_3_1_DisconnectFromClient(),
+			new Test_3_2_DisconnectWithClose(),
+			new Test_3_3_DisconnectWithCloseSync(),
+			// new Test_3_4_DisconnectWithoutClose(),//なんか斬新な切断方法思いついたらつける。
 			
+			// data correctness
+			new Test_4_0_ReceiveManyTimes(),
+			new Test_4_1_ReceiveManyManyTimes(),
+			new Test_4_2_SendManyTimes(),
+			new Test_4_3_SendManyManyTimes(),
+			new Test_4_4_SendAndReceiveManyTimes(),
+			new Test_4_5_SendAndReceiveManyManyTimes(),
+			new Test_4_6_SendAndReceiveAsyncManyTimes(),
 		};
 		
 		Start();
@@ -75,7 +88,7 @@ public class TestRunner {
 		var hearderValues = optionalParams.headerValues;
 		
 		webuSocket = new WebuSocketClient(
-			"ws://127.0.0.1:80/calivers_disque_client",
+			"ws://127.0.0.1:80/reflector_disque_client",
 			() => {
 				test.OnConnect(webuSocket);
 			},
@@ -119,6 +132,9 @@ public class TestRunner {
 		var mainThreadInterval = 1000f / framePerSecond;
 		
 		var test = tests[0];
+		
+		var timeout = test.OnOptionalSettings().timeout;
+		
 		Action loopMethod = () => {
 			try {
 				var enumeration = Setup(webuSocket, test);
@@ -154,8 +170,7 @@ public class TestRunner {
 					
 					testFrameCount++;
 					
-					// wait 5sec for timeout. 
-					if (60 * 5 < testFrameCount) {
+					if (timeout < testFrameCount) {
 						Debug.LogError("timeout:" + test.ToString());
 						break;
 					}

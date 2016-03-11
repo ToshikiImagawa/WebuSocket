@@ -148,7 +148,7 @@ public class Test_2_4_Two128_128MessageReceivedOnSameFrame : ITestCase {
 
 public class Test_2_5_LargeSizeMessageReceived : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return new OptionalSettings(0);
+        return DefaultSetting.Default();
     }
 	
 	/*
