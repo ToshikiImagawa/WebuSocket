@@ -36,7 +36,7 @@ public class TestRunner {
 			new Test_1_4_SizeMatching_65535WithThrottle(),
 			new Test_1_5_SizeMatching_14140WithThrottle(),
 			
-			// // multiple receive
+			// multiple receive
 			new Test_2_0_TwoPingReceivedOnSameFrame(),
 			new Test_2_1_TwoSmall125MessageReceivedOnSameFrame(),
 			new Test_2_2_Two125_126MessageReceivedOnSameFrame(),
@@ -67,25 +67,22 @@ public class TestRunner {
 		
 		// ver 0.5.0
 		// using new frequently.
-		// 3472
-		// 3385
-		// 3367
-		// 3294
-		// 3309
-		
-		// おや、、再計測したら遅いぞ、、、
 		// 3586
 		// 4162
 		// 3632
 		// 3861
 		// 3677
 		
-		// using Array.Resize.
+		// total avg 3783.6
+		
+		// using Array.Resize. Winner!!
 		// 3511
 		// 3411
 		// 3465
 		// 3468
 		// 3451
+		
+		// total avg 3461.2 FASTEST.
 		
 			// take2
 			// 3452
@@ -93,14 +90,28 @@ public class TestRunner {
 			// 3397
 			// 3400
 			// 3455
+			
+			// total 3462.8
 		
 		
-		// using pre-allocated buffer.
+		// using pre-allocated buffer. 65535 * 10.
 		// 3389
 		// 3445
 		// 3577
 		// 3492
 		// 3539
+		
+		// total avg 3488.4
+		
+		
+			// take2
+			// 3419
+			// 3395
+			// 3569
+			// 3526
+			// 3528
+			
+			// total 3487.4
 	}
 	
 	private int totalFrame;
