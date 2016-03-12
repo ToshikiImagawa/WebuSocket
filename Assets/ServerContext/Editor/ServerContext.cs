@@ -100,7 +100,7 @@ public class ServerContext {
 	}
 
 	public void OnDisconnected (string connectionId, byte[] data, string reason) {
-		Debug.LogError("OnDisconnected connectionId:" + connectionId + " reason:" + reason);
+		Debug.Log("OnDisconnected connectionId:" + connectionId + " reason:" + reason);
 	}
 	
 	/**

@@ -36,7 +36,7 @@ public class TestRunner {
 			new Test_1_4_SizeMatching_65535WithThrottle(),
 			new Test_1_5_SizeMatching_14140WithThrottle(),
 			
-			// multiple receive
+			// // multiple receive
 			new Test_2_0_TwoPingReceivedOnSameFrame(),
 			new Test_2_1_TwoSmall125MessageReceivedOnSameFrame(),
 			new Test_2_2_Two125_126MessageReceivedOnSameFrame(),
@@ -61,8 +61,49 @@ public class TestRunner {
 			new Test_4_6_SendAndReceiveAsyncManyTimes(),
 		};
 		
+		totalFrame = 0;
+		
 		Start();
+		
+		// ver 0.5.0
+		// using new frequently.
+		// 3472
+		// 3385
+		// 3367
+		// 3294
+		// 3309
+		
+		// おや、、再計測したら遅いぞ、、、
+		// 3586
+		// 4162
+		// 3632
+		// 3861
+		// 3677
+		
+		// using Array.Resize.
+		// 3511
+		// 3411
+		// 3465
+		// 3468
+		// 3451
+		
+			// take2
+			// 3452
+			// 3610
+			// 3397
+			// 3400
+			// 3455
+		
+		
+		// using pre-allocated buffer.
+		// 3389
+		// 3445
+		// 3577
+		// 3492
+		// 3539
 	}
+	
+	private int totalFrame;
 	
 	private void Start () {
 		WebuSocketClient webuSocket = null;
@@ -73,14 +114,14 @@ public class TestRunner {
 		tests.RemoveAt(0);
 		
 		if (!tests.Any()) {
-			Debug.LogError("all tests finished.");
+			Debug.LogError("all tests finished. totalFrame:" + totalFrame);
 			return;
 		}
 		
 		Start();
 	}
 
-    private IEnumerator Setup (WebuSocketClient webuSocket, ITestCase test) {
+    private IEnumerator<int> Setup (WebuSocketClient webuSocket, ITestCase test) {
 		Debug.LogWarning("test:" + test.ToString() + " started,");
 		
 		var optionalParams = test.OnOptionalSettings();
@@ -106,16 +147,20 @@ public class TestRunner {
 			}
 		);
 		
+		var frame = 0;
 		while (webuSocket.IsConnected()) {
-			yield return null;
+			frame++;
+			yield return 0;
 		}
 		
 		while (webuSocket.State() != WebuSocketClient.WSConnectionState.Closed) {
-			yield return null;
+			frame++;
+			yield return 0;
 		}
 		
 		// closed.
-		Debug.LogWarning("test:" + test.ToString() + " overed.");
+		Debug.Log("test:" + test.ToString() + " passed. spent frame:" + frame);
+		yield return frame;
     }
 	
 	private void Teardown (WebuSocketClient webuSocket) {
@@ -175,7 +220,7 @@ public class TestRunner {
 						break;
 					}
 				}
-				
+				totalFrame += enumeration.Current;
 				Teardown(webuSocket);
 			} catch (Exception e) {
 				Debug.LogError("test loopId:" + test.ToString() + " error:" + e);

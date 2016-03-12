@@ -126,14 +126,14 @@ namespace WebuSocket {
 							foreach (var data in receivedDataList) totalLength = totalLength + data.Length;
 							
 							var dataIndex = stackedBytes.Length;
-							var stackedBytesBuckup = stackedBytes;
+							// var stackedBytesBuckup = stackedBytes;
 							
-							// このへん一応試験実装。resizeもO(n)なので1度だと大差なさそうなんだけど。
 							/*
 								renew stackedBytes to 
 							*/
-							stackedBytes = new byte[stackedBytesBuckup.Length + totalLength];
-							if (0 < stackedBytesBuckup.Length) Buffer.BlockCopy(stackedBytesBuckup, 0, stackedBytes, 0, stackedBytesBuckup.Length);
+							// stackedBytes = new byte[stackedBytesBuckup.Length + totalLength];
+							Array.Resize(ref stackedBytes, stackedBytes.Length + totalLength);
+							// if (0 < stackedBytesBuckup.Length) Buffer.BlockCopy(stackedBytesBuckup, 0, stackedBytes, 0, stackedBytesBuckup.Length);
 							
 							// read all incoming datas. adding to stackedBytes.
 							foreach (var receivedData in receivedDataList) {
