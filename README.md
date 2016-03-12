@@ -1,7 +1,7 @@
 #WebuSocket
 
 WebSocket Client implementation for C#.  
-ver 0.5.0
+ver 0.5.1
 
 ##Motivation
 

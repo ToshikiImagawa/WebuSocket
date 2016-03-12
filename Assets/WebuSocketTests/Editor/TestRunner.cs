@@ -82,7 +82,7 @@ public class TestRunner {
 		// 3468
 		// 3451
 		
-		// total avg 3461.2 FASTEST.
+		// total avg 3461.2 FASTEST. ver 0.5.1
 		
 			// take2
 			// 3452
@@ -111,7 +111,8 @@ public class TestRunner {
 			// 3526
 			// 3528
 			
-			// total 3487.4
+			// total avg 3487.4
+		
 	}
 	
 	private int totalFrame;

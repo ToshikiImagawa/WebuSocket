@@ -125,12 +125,12 @@ namespace WebuSocket {
 			get message detail from data.
 			no copy emitted. only read data then return there indexies of messages.
 		*/
-		public static List<OpCodeAndPayloadIndex> GetIndexies (byte[] data, uint limit) {
+		public static List<OpCodeAndPayloadIndex> GetIndexies (byte[] data) {
 			var opCodeAndPayloadIndexies = new List<OpCodeAndPayloadIndex>();
 			
 			uint messageHead;
 			uint cursor = 0;
-			while (cursor < limit) {
+			while (cursor < data.Length) {
 				messageHead = cursor;
 				
 				// first byte = fin(1), rsv1(1), rsv2(1), rsv3(1), opCode(4)
@@ -176,7 +176,7 @@ namespace WebuSocket {
 					
 					break indexing then store the rest = header of fragment data and half of payload.
 				*/
-				if ((limit - cursor) < length) break;
+				if ((data.Length - cursor) < length) break;
 				
 				if (length != 0) {
 					var payload = new byte[length];

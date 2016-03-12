@@ -106,8 +106,7 @@ namespace WebuSocket {
 				stack of data which received header and half of payload.
 				this is local valuable and never access to this instance from outside of consumer thread.
 			*/
-			var stackedBytes = new byte[65535 * 10];
-			uint stackIndex = 0;
+			var stackedBytes = new byte[0];
 			
 			/*
 				thread for process the queue of received data.
@@ -126,20 +125,17 @@ namespace WebuSocket {
 							var totalLength = 0;
 							foreach (var data in receivedDataList) totalLength = totalLength + data.Length;
 							
-							var dataIndex = stackIndex;
+							var dataIndex = stackedBytes.Length;
 							
 							/*
-								renew stackedBytes to 
+								expand stackedBytes. head of this bytes is maybe empty or rest of past-frame data. keep these datas & update size. 
 							*/
-							
-							// この辺に溢れる場合の処理を書く必要がある。
-							// Array.Resize(ref stackedBytes, stackedBytes.Length + totalLength);
-							// if (0 < stackedBytesBuckup.Length) Buffer.BlockCopy(stackedBytesBuckup, 0, stackedBytes, 0, stackedBytesBuckup.Length);
+							Array.Resize(ref stackedBytes, stackedBytes.Length + totalLength);
 							
 							// read all incoming datas. adding to stackedBytes.
 							foreach (var receivedData in receivedDataList) {
-								Array.Copy(receivedData, 0, stackedBytes, dataIndex, receivedData.Length);
-								dataIndex = (uint)(dataIndex + receivedData.Length);
+								Buffer.BlockCopy(receivedData, 0, stackedBytes, dataIndex, receivedData.Length);
+								dataIndex = dataIndex + receivedData.Length;
 							}
 							
 							// consume all received data.
@@ -151,7 +147,7 @@ namespace WebuSocket {
 							*/
 							var wholeData = stackedBytes;
 							
-							var messageIndexies = WebSocketByteGenerator.GetIndexies(wholeData, dataIndex);
+							var messageIndexies = WebSocketByteGenerator.GetIndexies(wholeData);
 							
 							
 							
@@ -188,17 +184,15 @@ namespace WebuSocket {
 							
 							// fill stackedBytes with rest of partial message data.
 							// will be 0 < length if fragment exists. or just 0.
-							// stackedBytes = new byte[wholeData.Length - lastDataIndex];
-							var restLength = dataIndex - lastDataIndex;
-														
+							stackedBytes = new byte[wholeData.Length - lastDataIndex];
+							
 							// stack rest data into stackedBytes.
 							if (0 < stackedBytes.Length) {
-								// Debug.LogError("rest:" + stackedBytes.Length);
-								Array.Copy(wholeData, lastDataIndex, stackedBytes, 0, restLength);
+								Debug.LogError("rest:" + stackedBytes.Length);
+								Array.Copy(wholeData, lastDataIndex, stackedBytes, 0, stackedBytes.Length);
 							}
-							
-							stackIndex = restLength;
 						}
+						
 						
 						// emit messages.
 						if (0 < messageQueue.Count) {
