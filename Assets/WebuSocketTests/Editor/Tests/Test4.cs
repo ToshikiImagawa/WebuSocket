@@ -83,7 +83,7 @@ public class Test_4_2_SendManyTimes : ITestCase {
 
 public class Test_4_3_SendManyManyTimes : ITestCase {
 	public OptionalSettings OnOptionalSettings () {
-        return DefaultSetting.Default();
+        return new OptionalSettings(0, null, 60 * 180);
     }
     public void OnConnect(WebuSocketClient webuSocket) {
 		var manyDataRequest = "10000DataSendAndReturn";
