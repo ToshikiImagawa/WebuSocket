@@ -103,7 +103,6 @@ public class TestRunner {
 		
 		// total avg 3488.4
 		
-		
 			// take2
 			// 3419
 			// 3395
@@ -112,6 +111,15 @@ public class TestRunner {
 			// 3528
 			
 			// total avg 3487.4
+		
+		// ver 0.5.1 
+		// 3416
+		// 3574
+		// 3447
+		// 3504
+		// 3502
+		
+		// total avg 3488.6
 		
 	}
 	

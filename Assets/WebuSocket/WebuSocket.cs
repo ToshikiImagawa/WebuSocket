@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Security.Cryptography;
+using System.Linq;
 
 
 /**
@@ -125,12 +126,13 @@ namespace WebuSocket {
 							var totalLength = 0;
 							foreach (var data in receivedDataList) totalLength = totalLength + data.Length;
 							
+							// stack length of data which is stacked at previous run.
 							var dataIndex = stackedBytes.Length;
 							
 							/*
 								expand stackedBytes. head of this bytes is maybe empty or rest of past-frame data. keep these datas & update size. 
 							*/
-							Array.Resize(ref stackedBytes, stackedBytes.Length + totalLength);
+							Array.Resize(ref stackedBytes, dataIndex + totalLength);
 							
 							// read all incoming datas. adding to stackedBytes.
 							foreach (var receivedData in receivedDataList) {
@@ -145,12 +147,9 @@ namespace WebuSocket {
 							/*
 								start reading.
 							*/
-							var wholeData = stackedBytes;
 							
-							var messageIndexies = WebSocketByteGenerator.GetIndexies(wholeData);
-							
-							
-							
+							var messageIndexies = WebSocketByteGenerator.GetIndexies(stackedBytes);
+														
 							for (var i = 0; i < messageIndexies.Count; i++) {
 								var messageIndex = messageIndexies[i];
 								
@@ -168,29 +167,26 @@ namespace WebuSocket {
 										break;
 									}
 									case WebSocketByteGenerator.OP_BINARY: {
-										messageQueue.Enqueue(wholeData.SubArray(messageIndex.start, messageIndex.length));
+										messageQueue.Enqueue(stackedBytes.SubArray(messageIndex.start, messageIndex.length));
 										break;
 									}
 									case WebSocketByteGenerator.OP_CLOSE: {
-										if (OnError != null) OnError("closed by server.", null);
+										if (OnClosed != null) OnClosed("closed by server.");
 										Close();
 										break;
 									}
 								}
 							}
 							
+							
 							uint lastDataIndex = 0;
 							if (0 < messageIndexies.Count) lastDataIndex = messageIndexies[messageIndexies.Count-1].start + messageIndexies[messageIndexies.Count-1].length;
 							
 							// fill stackedBytes with rest of partial message data.
 							// will be 0 < length if fragment exists. or just 0.
-							stackedBytes = new byte[wholeData.Length - lastDataIndex];
-							
-							// stack rest data into stackedBytes.
-							if (0 < stackedBytes.Length) {
-								Debug.LogError("rest:" + stackedBytes.Length);
-								Array.Copy(wholeData, lastDataIndex, stackedBytes, 0, stackedBytes.Length);
-							}
+							var restLength = (uint)stackedBytes.Length - lastDataIndex;
+							if (0 == restLength) stackedBytes = new byte[0];
+							else stackedBytes = stackedBytes.SubArray(lastDataIndex, restLength);
 						}
 						
 						
