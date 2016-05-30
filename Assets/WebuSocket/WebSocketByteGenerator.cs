@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using UnityEngine;
+using System.Security.Cryptography;
+using System.Text;
 
-namespace WebuSocket {
-	public static class WebSocketByteGenerator {
+namespace WebuSocketCore {
+    public static class WebSocketByteGenerator {
 		// #0                   1                   2                   3
 		// #0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// #+-+-+-+-+-------+-+-------------+-------------------------------+
@@ -30,8 +31,7 @@ namespace WebuSocket {
 		public const byte OP_PING			= 0x9;// 1001
 		public const byte OP_PONG			= 0xA;// 1010
 		
-		private const byte OPFilter			= 0xF;// 1111
-		private const byte Length7Filter	= 0xBF;// 01111111
+		public const byte OPFilter			= 0xF;// 1111
 		
 		public static byte[] Ping () {
 			return WSDataFrame(1, 0, 0, 0, OP_PING, 1, new byte[0]);
@@ -105,7 +105,7 @@ namespace WebuSocket {
 				}
 				
 				// client should mask control frame.
-				var maskKey = WebuSocketClient.NewMaskKey();
+				var maskKey = NewMaskKey();
 				dataStream.Write(maskKey, 0, maskKey.Length);
 				
 				// mask data.
@@ -202,10 +202,25 @@ namespace WebuSocket {
 			}
 		}
 		
-		public static byte[] SubArray (this byte[] data, uint index, uint length) {
-    		var result = new byte[length];
-    		Array.Copy(data, index, result, 0, length);
-    		return result;
+		private static RNGCryptoServiceProvider randomGen = new RNGCryptoServiceProvider();
+		
+		public static string GenerateExpectedAcceptedKey (string baseStr) {
+			var concat = (baseStr.TrimEnd() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+			var sha1d = new SHA1CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(concat));
+			return Convert.ToBase64String(sha1d);
 		}
+		
+		public static string GeneratePrivateBase64Key () {
+			var src = new byte[16];
+			randomGen.GetBytes(src);
+			return Convert.ToBase64String(src);
+		}
+		
+		public static byte[] NewMaskKey () {
+			var maskingKeyBytes = new byte[4];
+			randomGen.GetBytes(maskingKeyBytes);
+			return maskingKeyBytes;
+		}
+		
 	}
 }

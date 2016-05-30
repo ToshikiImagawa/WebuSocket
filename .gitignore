@@ -14,3 +14,12 @@ obj/*
 Temp/*
 
 WebuSocket.sln
+
+Assembly-CSharp-firstpass.csproj
+
+Assets/Plugins/UniRx/*
+
+Assets/Plugins/UniRx.meta
+
+
+ProjectSettings/ProjectVersion.txt

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using WebuSocket;
+using WebuSocketCore;
 
 /*
 	tests for 1 frame per sec.
@@ -18,11 +18,11 @@ public class Test_2_0_TwoPingReceivedOnSameFrame : ITestCase {
 	
 	private int count = 0;
 	
-    public void OnConnect(WebuSocketClient webuSocket) {
+    public void OnConnect(WebuSocket webuSocket) {
 		Action act = () => {
 			count++;
 			if (count == 2) {
-				webuSocket.Close();
+				webuSocket.Disconnect();
 			}
 		};
 		
@@ -30,7 +30,7 @@ public class Test_2_0_TwoPingReceivedOnSameFrame : ITestCase {
 		webuSocket.Ping(act);
     }
 	
-    public void OnReceived(WebuSocketClient webuSocket, Queue<byte[]> datas) {}
+    public void OnReceived(WebuSocket webuSocket, Queue<byte[]> datas) {}
 }
 
 
@@ -39,7 +39,7 @@ public class Test_2_1_TwoSmall125MessageReceivedOnSameFrame : ITestCase {
         return new OptionalSettings(TestFrame2.throttleFrame);
     }
 	
-    public void OnConnect(WebuSocketClient webuSocket) {
+    public void OnConnect(WebuSocket webuSocket) {
 		var message = new byte[125];
 		for (var i = 0; i < message.Length; i++) message[i] = (byte)i;
 		webuSocket.Send(message);
@@ -48,14 +48,14 @@ public class Test_2_1_TwoSmall125MessageReceivedOnSameFrame : ITestCase {
 	
 	private int count;
 	
-    public void OnReceived(WebuSocketClient webuSocket, Queue<byte[]> datas) {
+    public void OnReceived(WebuSocket webuSocket, Queue<byte[]> datas) {
 		while (0 < datas.Count) {
 			var data0 = datas.Dequeue();
 			
 			if (data0.Length != 125) Debug.LogError("faild to match Test_2_1_TwoSmall125MessageReceivedOnSameFrame. data0.Length:" + data0.Length);
 			
 			count++;
-			if (count == 2) webuSocket.Close();
+			if (count == 2) webuSocket.Disconnect();
 		}
 	}
 }
@@ -65,7 +65,7 @@ public class Test_2_2_Two125_126MessageReceivedOnSameFrame : ITestCase {
         return new OptionalSettings(TestFrame2.throttleFrame);
     }
 	
-    public void OnConnect(WebuSocketClient webuSocket) {
+    public void OnConnect(WebuSocket webuSocket) {
 		var message0 = new byte[126];
 		for (var i = 0; i < message0.Length; i++) message0[i] = (byte)i;
 		
@@ -75,14 +75,14 @@ public class Test_2_2_Two125_126MessageReceivedOnSameFrame : ITestCase {
 	
 	private int count;
 	
-    public void OnReceived(WebuSocketClient webuSocket, Queue<byte[]> datas) {
+    public void OnReceived(WebuSocket webuSocket, Queue<byte[]> datas) {
 		while (0 < datas.Count) {
 			var data0 = datas.Dequeue();
 			
 			if (data0.Length != 126) Debug.LogError("faild to match Test_2_2_Two125_126MessageReceivedOnSameFrame. data0.Length:" + data0.Length);
 			
 			count++;
-			if (count == 2) webuSocket.Close();
+			if (count == 2) webuSocket.Disconnect();
 		}
 	}
 }
@@ -92,7 +92,7 @@ public class Test_2_3_Two127_127MessageReceivedOnSameFrame : ITestCase {
         return new OptionalSettings(TestFrame2.throttleFrame);
     }
 	
-    public void OnConnect(WebuSocketClient webuSocket) {
+    public void OnConnect(WebuSocket webuSocket) {
 		var message0 = new byte[127];
 		for (var i = 0; i < message0.Length; i++) message0[i] = (byte)i;
 		
@@ -104,14 +104,14 @@ public class Test_2_3_Two127_127MessageReceivedOnSameFrame : ITestCase {
     }
 	
 	private int count;
-    public void OnReceived(WebuSocketClient webuSocket, Queue<byte[]> datas) {
+    public void OnReceived(WebuSocket webuSocket, Queue<byte[]> datas) {
 		while (0 < datas.Count) {
 			var data0 = datas.Dequeue();
 			
 			if (data0.Length != 127) Debug.LogError("faild to match Test_2_3_Two127_127MessageReceivedOnSameFrame. data0.Length:" + data0.Length);
 			
 			count++;
-			if (count == 2) webuSocket.Close();
+			if (count == 2) webuSocket.Disconnect();
 		}
 	}
 }
@@ -121,7 +121,7 @@ public class Test_2_4_Two128_128MessageReceivedOnSameFrame : ITestCase {
         return new OptionalSettings(TestFrame2.throttleFrame);
     }
 	
-    public void OnConnect(WebuSocketClient webuSocket) {
+    public void OnConnect(WebuSocket webuSocket) {
 		var message0 = new byte[128];
 		for (var i = 0; i < message0.Length; i++) message0[i] = (byte)i;
 		
@@ -134,14 +134,14 @@ public class Test_2_4_Two128_128MessageReceivedOnSameFrame : ITestCase {
 	
 	private int count;
 	
-    public void OnReceived(WebuSocketClient webuSocket, Queue<byte[]> datas) {
+    public void OnReceived(WebuSocket webuSocket, Queue<byte[]> datas) {
 		while (0 < datas.Count) {
 			var data0 = datas.Dequeue();
 			
 			if (data0.Length != 128) Debug.LogError("faild to match Test_2_4_Two128_128MessageReceivedOnSameFrame. data0.Length:" + data0.Length);
 			
 			count++;
-			if (count == 2) webuSocket.Close();
+			if (count == 2) webuSocket.Disconnect();
 		}
 	}
 }
@@ -159,7 +159,7 @@ public class Test_2_5_LargeSizeMessageReceived : ITestCase {
 	private int size = 43000;// 単純にluajitの耐えられる一回の実行の重さの限界がありそう。このあたりが限界っぽい。10k x 100 / frame
 	private int amount = 32;
 	
-    public void OnConnect(WebuSocketClient webuSocket) {
+    public void OnConnect(WebuSocket webuSocket) {
 		for (var i = 0; i < amount; i++) {
 			var message0 = new byte[size];
 			for (var j = 0; j < message0.Length; j++) message0[j] = (byte)j;
@@ -169,7 +169,7 @@ public class Test_2_5_LargeSizeMessageReceived : ITestCase {
 	private int count = 0;
 	private int total = 0;
 	
-    public void OnReceived(WebuSocketClient webuSocket, Queue<byte[]> datas) {
+    public void OnReceived(WebuSocket webuSocket, Queue<byte[]> datas) {
 		while (0 < datas.Count) {
 			var data0 = datas.Dequeue();
 			
@@ -180,7 +180,7 @@ public class Test_2_5_LargeSizeMessageReceived : ITestCase {
 			count++;
 			
 			if (count == amount) {
-				webuSocket.Close();
+				webuSocket.Disconnect();
 			}
 		}
 	}
