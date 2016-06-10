@@ -614,6 +614,11 @@ namespace WebuSocketCore {
 			socketToken.sendArgs.SetBuffer(payloadBytes, 0, payloadBytes.Length);
 			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
 		}
+
+		public bool IsConnected () {
+			if (socketToken.socketState == SocketState.OPENED) return true; 
+			return false;
+		}
 		
 		
 		
