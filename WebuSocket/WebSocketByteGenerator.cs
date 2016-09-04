@@ -25,7 +25,7 @@ namespace WebuSocketCore {
 		// #|                     Payload Data continued ...                |
 
 		public const byte OP_CONTINUATION	= 0x0; //unsupported.
-		public const byte OP_TEXT			= 0x1;// 0001 unsupported.
+		public const byte OP_TEXT			= 0x1;// 0001
 		public const byte OP_BINARY			= 0x2;// 0010
 		public const byte OP_CLOSE			= 0x8;// 1000
 		public const byte OP_PING			= 0x9;// 1001
@@ -41,6 +41,9 @@ namespace WebuSocketCore {
 			return WSDataFrame(1, 0, 0, 0, OP_PONG, 1, new byte[0]);
 		}
 		
+		public static byte[] SendTextData (byte[] data) {
+			return WSDataFrame(1, 0, 0, 0, OP_TEXT, 1, data);
+		}
 		public static byte[] SendBinaryData (byte[] data) {
 			return WSDataFrame(1, 0, 0, 0, OP_BINARY, 1, data);
 		}

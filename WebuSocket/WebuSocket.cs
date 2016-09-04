@@ -161,13 +161,9 @@ namespace WebuSocketCore {
 		
 		
 		private void StartConnectAsync (byte[] requestData) {
-			// Debug.LogError("timeout setting.");
-			var timeout = 1000;
-			
 			socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 			socket.NoDelay = true;
-			socket.SendTimeout = timeout;
-			
+
 			var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 			clientSocket.NoDelay = true;
 			
@@ -196,31 +192,33 @@ namespace WebuSocketCore {
 		
 		private void OnConnect (object unused, SocketAsyncEventArgs args) {
 			var token = (SocketToken)args.UserToken;
-			switch (token.socketState) {
-				case SocketState.CONNECTING: {
-					if (args.SocketError != SocketError.Success) {
-						token.socketState = SocketState.CLOSED;
+			lock (lockObj) {
+				switch (token.socketState) {
+					case SocketState.CONNECTING: {
+						if (args.SocketError != SocketError.Success) {
+							token.socketState = SocketState.CLOSED;
+							
+							if (OnError != null) {
+								var error = new Exception("connect error:" + args.SocketError.ToString());
+								OnError(WebuSocketErrorEnum.CONNECTION_FAILED, error);
+							}
+							return;
+						}
 						
-						if (OnError != null) {
-							var error = new Exception("connect error:" + args.SocketError.ToString());
-							OnError(WebuSocketErrorEnum.CONNECTION_FAILED, error);
-						} 
+						token.socketState = SocketState.OPENING;
+						
+						// ready receive.
+						socketToken.readableDataLength = 0;
+						socketToken.receiveArgs.SetBuffer(socketToken.receiveBuffer, 0, socketToken.receiveBuffer.Length);
+						if (!socketToken.socket.ReceiveAsync(socketToken.receiveArgs)) OnReceived(socketToken.socket, socketToken.receiveArgs);
+						
+						// send. websocket handshake request data is already set.
+						if (!token.socket.SendAsync(socketToken.sendArgs)) OnSend(token.socket, token.sendArgs);
 						return;
 					}
-					
-					token.socketState = SocketState.OPENING;
-					
-					// ready receive.
-					socketToken.readableDataLength = 0;
-					socketToken.receiveArgs.SetBuffer(socketToken.receiveBuffer, 0, socketToken.receiveBuffer.Length);
-					if (!socketToken.socket.ReceiveAsync(socketToken.receiveArgs)) OnReceived(socketToken.socket, socketToken.receiveArgs);
-					
-					// send. websocket handshake request data is already set.
-					if (!token.socket.SendAsync(socketToken.sendArgs)) OnSend(token.socket, token.sendArgs);
-					return;
-				}
-				default: {
-					throw new Exception("socket state does not correct:" + token.socketState);
+					default: {
+						throw new Exception("socket state does not correct:" + token.socketState);
+					}
 				}
 			}
 		}
@@ -233,15 +231,17 @@ namespace WebuSocketCore {
 					break;
 				}
 				default: {
-					token.socketState = SocketState.CLOSED;
+					lock (lockObj) {
+						token.socketState = SocketState.CLOSED;
 
-					try {
-						token.socket.Close();
-					} catch {
-						// do nothing.
-					}
+						try {
+							token.socket.Close();
+						} catch {
+							// do nothing.
+						}
 
-					if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_GRACEFULLY); 
+						if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_GRACEFULLY);
+					} 
 					break;
 				}
 			}
@@ -259,69 +259,75 @@ namespace WebuSocketCore {
 						var error = new Exception("send error:" + socketError.ToString());
 						OnError(WebuSocketErrorEnum.SEND_FAILED, error);
 					}
+					Disconnect();
 					break;
 				}
 			}
 		}
+
+		private object lockObj = new object();
 		
 		private void OnReceived (object unused, SocketAsyncEventArgs args) {
 			var token = (SocketToken)args.UserToken;
 			
-			if (args.SocketError != SocketError.Success) { 
-				switch (token.socketState) {
-					case SocketState.CLOSING:
-					case SocketState.CLOSED: {
-						// already closing, ignore.
-						return;
-					}
-					default: {
-						// show error, then close or continue receiving.
-						if (OnError != null) {
-							var error = new Exception("receive error:" + args.SocketError.ToString() + " size:" + args.BytesTransferred);
-							OnError(WebuSocketErrorEnum.RECEIVE_FAILED, error);
+			if (args.SocketError != SocketError.Success) {
+				lock (lockObj) { 
+					switch (token.socketState) {
+						case SocketState.CLOSING:
+						case SocketState.CLOSED: {
+							// already closing, ignore.
+							return;
 						}
-						
-						// connection is already closed.
-						if (!IsSocketConnected(token.socket)) {
-							if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_WHILE_RECEIVING);
+						default: {
+							// show error, then close or continue receiving.
+							if (OnError != null) {
+								var error = new Exception("receive error:" + args.SocketError.ToString() + " size:" + args.BytesTransferred);
+								OnError(WebuSocketErrorEnum.RECEIVE_FAILED, error);
+							}
 							Disconnect();
 							return;
 						}
-						
-						// continue receiving data. go to below.
-						break;
 					}
 				}
 			}
 			
-			if (args.BytesTransferred == 0) throw new Exception("failed to receive. args.BytesTransferred = 0.");
+			if (args.BytesTransferred == 0) {
+				if (OnError != null) {
+					var error = new Exception("failed to receive. args.BytesTransferred = 0." + " args.SocketError:" + args.SocketError);
+					OnError(WebuSocketErrorEnum.RECEIVE_FAILED, error);
+				}
+				Disconnect();
+				return;
+			}
 			
 			// update as read completed.
 			token.readableDataLength = token.readableDataLength + args.BytesTransferred;
 			
 			switch (token.socketState) {
 				case SocketState.OPENING: {
-					var lineEndCursor = ReadUpgradeLine(args.Buffer, 0, token.readableDataLength);
-					if (lineEndCursor != -1) {
-						var protocolData = new SwitchingProtocolData(Encoding.UTF8.GetString(args.Buffer, 0, lineEndCursor));
-						var expectedKey = WebSocketByteGenerator.GenerateExpectedAcceptedKey(base64Key);
+					lock (lockObj) {
+						var lineEndCursor = ReadUpgradeLine(args.Buffer, 0, token.readableDataLength);
+						if (lineEndCursor != -1) {
+							var protocolData = new SwitchingProtocolData(Encoding.UTF8.GetString(args.Buffer, 0, lineEndCursor));
+							var expectedKey = WebSocketByteGenerator.GenerateExpectedAcceptedKey(base64Key);
+							
+							if (protocolData.securityAccept != expectedKey) {
+								if (OnError != null) {
+									var error =  new Exception("WebSocket Key Unmatched.");
+									OnError(WebuSocketErrorEnum.CONNECTION_KEY_UNMATCHED, error);
+								}
+							}  
+							token.socketState = SocketState.OPENED;
+							
+							if (OnConnected != null) OnConnected();
+							
+							ReadyReceivingNewData(token);
+							return;
+						}
 						
-						if (protocolData.securityAccept != expectedKey) {
-							if (OnError != null) {
-								var error =  new Exception("WebSocket Key Unmatched.");
-								OnError(WebuSocketErrorEnum.CONNECTION_KEY_UNMATCHED, error);
-							}
-						}  
-						token.socketState = SocketState.OPENED;
-						
-						if (OnConnected != null) OnConnected();
-						
-						ReadyReceivingNewData(token);
-						return;
+						// should read next.
+						ReceivingRestDataWithoutSort(token);
 					}
-					
-					// should read next.
-					ReceivingRestDataWithoutSort(token);
 					return;
 				}
 				case SocketState.OPENED: {
@@ -393,28 +399,30 @@ namespace WebuSocketCore {
 		}
 		
 		public void Disconnect (bool force=false) {
-			if (force) {
-				try {
-					socketToken.socket.Close();
-				} catch {
-					// do nothing.
-				}
-				socketToken.socketState = SocketState.CLOSED;
-				if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_FORCELY); 
-				return;
-			}
-			
-			switch (socketToken.socketState) {
-				case SocketState.CLOSING:
-				case SocketState.CLOSED: {
-					// do nothing
-					break;
-				}
-				default: {
-					socketToken.socketState = SocketState.CLOSING;
-					
-					StartCloseAsync();
-					break;
+			lock (lockObj) {
+				switch (socketToken.socketState) {
+					case SocketState.CLOSING:
+					case SocketState.CLOSED: {
+						// do nothing
+						break;
+					}
+					default: {
+						if (force) {
+							try {
+								socketToken.socket.Close();
+							} catch {
+								// do nothing.
+							}
+							socketToken.socketState = SocketState.CLOSED;
+							if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_FORCELY); 
+							return;
+						}
+
+						socketToken.socketState = SocketState.CLOSING;
+						
+						StartCloseAsync();
+						break;
+					}
 				}
 			}
 		}
@@ -432,8 +440,8 @@ namespace WebuSocketCore {
 			if (!socketToken.socket.SendAsync(closeEventArgs)) OnDisconnected(socketToken.socket, closeEventArgs);
 		}
 		
-		private static bool IsSocketConnected (Socket s) {
-			bool part1 = s.Poll(1000, SelectMode.SelectRead);
+		private bool IsSocketConnected (Socket s) {
+			bool part1 = s.Poll(10, SelectMode.SelectRead);
 			bool part2 = (s.Available == 0);
 			
 			if (part1 && part2) return false;
@@ -678,22 +686,52 @@ namespace WebuSocketCore {
 			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
 		}
 
+		public void SendString (string data) {
+			if (socketToken.socketState != SocketState.OPENED) {
+				WebuSocketErrorEnum ev = WebuSocketErrorEnum.UNKNOWN_ERROR;
+				Exception error = null;
+				switch (socketToken.socketState) {
+					case SocketState.OPENING: {
+						ev = WebuSocketErrorEnum.CONNECTING;
+						error = new Exception("send error:" + "not yet connected.");
+						break;
+					}
+					case SocketState.CLOSING:
+					case SocketState.CLOSED: {
+						ev = WebuSocketErrorEnum.ALREADY_DISCONNECTED;
+						error = new Exception("send error:" + "connection was already closed. please create new connection by new WebuSocket().");
+						break;
+					} 
+				}
+				if (OnError != null) OnError(ev, error);
+				return;
+			}
+			
+			var byteData = Encoding.UTF8.GetBytes(data);
+			var payloadBytes = WebSocketByteGenerator.SendTextData(byteData);
+			
+			socketToken.sendArgs.SetBuffer(payloadBytes, 0, payloadBytes.Length);
+			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
+		}
+
 		public bool IsConnected () {
-			if (socketToken.socketState == SocketState.OPENED) return true; 
-			return false;
+			if (socketToken.socketState != SocketState.OPENED) return false;
+			return true;
 		}
 		
 		private void CloseReceived () {
-			switch (socketToken.socketState) {
-				case SocketState.OPENED: {
-					socketToken.socketState = SocketState.CLOSED;
-					if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_BY_SERVER);
-					Disconnect();
-					break;
-				}
-				default: {
-					
-					break;
+			lock (lockObj) {
+				switch (socketToken.socketState) {
+					case SocketState.OPENED: {
+						socketToken.socketState = SocketState.CLOSED;
+						if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_BY_SERVER);
+						Disconnect();
+						break;
+					}
+					default: {
+						
+						break;
+					}
 				}
 			}
 		}
