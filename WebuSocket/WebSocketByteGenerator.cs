@@ -52,6 +52,7 @@ namespace WebuSocketCore {
 			return WSDataFrame(1, 0, 0, 0, OP_CLOSE, 1, new byte[0]);
 		}
 		
+		
 		private static byte[] WSDataFrame (
 			byte fin,
 			byte rsv1,
@@ -69,12 +70,13 @@ namespace WebuSocketCore {
 			
 			if (length < 126) {
 				dataLength7bit = (byte)length;
-			} else if (length < 65536) {
-				dataLength7bit = 126;
-				dataLength16bit = (UInt16)length;
-			} else {
+			} else if (65535 < length) {
 				dataLength7bit = 127;
 				dataLength64bit = length;
+			} else {// 126 ~ 65535
+				dataLength7bit = 126;
+				dataLength16bit = (UInt16)length;
+				UnityEngine.Debug.LogError("dataLength16bit:" + dataLength16bit);
 			}
 			
 			/*
@@ -172,6 +174,7 @@ namespace WebuSocketCore {
 						break;
 					}
 				}
+				
 				
 				/*
 					shortage of payload length.

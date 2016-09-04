@@ -681,7 +681,7 @@ namespace WebuSocketCore {
 			}
 
 			var payloadBytes = WebSocketByteGenerator.SendBinaryData(data);
-			
+
 			socketToken.sendArgs.SetBuffer(payloadBytes, 0, payloadBytes.Length);
 			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
 		}
