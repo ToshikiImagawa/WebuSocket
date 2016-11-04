@@ -1,12 +1,12 @@
 #WebuSocket
 
 WebSocket Client implementation for C#.  
-ver 0.6.5
+ver 0.6.6
 
 ##motivation
 
 * async default
-* runnable on C# 3.5 or later(contains Unity.)
+* runnable on C# 3.5 or later(includes Unity.)
 
 ##usage
 
@@ -42,9 +42,9 @@ var webuSocket = new WebuSocket(
 ```			
 
 ##not yet implemented
-* wss
 * timeout setting
 * redirection
+* tls 1.3
 * else...
 
 contribute welcome!
