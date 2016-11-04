@@ -24,7 +24,7 @@ namespace WebuSocketCore {
 		// #+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
 		// #|                     Payload Data continued ...                |
 
-		public const byte OP_CONTINUATION	= 0x0; //unsupported.
+		public const byte OP_CONTINUATION	= 0x0;
 		public const byte OP_TEXT			= 0x1;// 0001
 		public const byte OP_BINARY			= 0x2;// 0010
 		public const byte OP_CLOSE			= 0x8;// 1000
@@ -66,7 +66,7 @@ namespace WebuSocketCore {
 			
 			byte dataLength7bit = 0;
 			UInt16 dataLength16bit = 0;
-			uint dataLength64bit = 0;
+			UInt64 dataLength64bit = 0;
 			
 			if (length < 126) {
 				dataLength7bit = (byte)length;
@@ -76,7 +76,6 @@ namespace WebuSocketCore {
 			} else {// 126 ~ 65535
 				dataLength7bit = 126;
 				dataLength16bit = (UInt16)length;
-				UnityEngine.Debug.LogError("dataLength16bit:" + dataLength16bit);
 			}
 			
 			/*
@@ -86,6 +85,7 @@ namespace WebuSocketCore {
 				dataStream.WriteByte((byte)((fin << 7) | (rsv1 << 6) | (rsv2 << 5) | (rsv3 << 4) | opCode));
 				dataStream.WriteByte((byte)((mask << 7) | dataLength7bit));
 				
+				// 126 ~ 65535.
 				if (0 < dataLength16bit) {
 					var intBytes = new byte[2];
 					intBytes[0] = (byte)(dataLength16bit >> 8);
@@ -94,6 +94,8 @@ namespace WebuSocketCore {
 					// dataLength16 to 2bytes.
 					dataStream.Write(intBytes, 0, intBytes.Length);
 				}
+
+				// 65536 ~.
 				if (0 < dataLength64bit) {
 					var intBytes = new byte[8];
 					intBytes[0] = (byte)(dataLength64bit >> (8*7));
@@ -114,14 +116,14 @@ namespace WebuSocketCore {
 				dataStream.Write(maskKey, 0, maskKey.Length);
 				
 				// mask data.
-				var maskedData = data.Masked(maskKey);
+				var maskedData = Masked(data, maskKey);
 				dataStream.Write(maskedData, 0, maskedData.Length);
 				
 				return dataStream.ToArray();
 			}
 		}
 		
-		private static byte[] Masked (this byte[] data, byte[] maskKey) {
+		private static byte[] Masked (byte[] data, byte[] maskKey) {
 			for (var i = 0; i < data.Length; i++) data[i] ^= maskKey[i%4];
 			return data;
 		}
