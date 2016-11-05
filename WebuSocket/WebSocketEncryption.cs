@@ -10,23 +10,29 @@ namespace WebuSocketCore.Encryption {
 		*/
 		public WebuSocketTlsClientProtocol() : base(new SecureRandom()) {}
 
+		private byte[] emptyByteBuffer = new byte[0];
+
 		/**
-			additional method for refresh internal input buffer.
-			use when no need to use partial cache data in internal input buffer.
+			write byte datas to tls input without creating new partial buffer from exists buffer.
+			this method does not require buffer copy for input.
 		*/
-		public void RefreshInputBuffer () {
-			mInputBuffers.Skip(mInputBuffers.Available);
+		public void OfferInputBytes (byte[] bytes, int length) {
+			/*
+				changed for no-new buffer.
+			*/
+			mInputBuffers.Write(bytes, 0, length);
+			base.OfferInput(emptyByteBuffer);
 		}
 	}
 
 	public class WebuSocketTlsClient : DefaultTlsClient {
 		
 		internal TlsSession mSession;
-		private readonly Action handshaleDone;
+		private readonly Action handshakeDone;
 		private readonly Action<Exception, string> handleError;
 
-		public WebuSocketTlsClient (Action handshaleDone, Action<Exception, string> handleError) {
-			this.handshaleDone = handshaleDone;
+		public WebuSocketTlsClient (Action handshakeDone, Action<Exception, string> handleError) {
+			this.handshakeDone = handshakeDone;
 			this.handleError = handleError;
 			this.mSession = null;
 		}
@@ -36,7 +42,6 @@ namespace WebuSocketCore.Encryption {
 		}
 
 		public override void NotifyAlertRaised (byte alertLevel, byte alertDescription, string message, Exception cause) {
-			// Debug.LogError("TLS client raised alert: " + AlertLevel.GetText(alertLevel) + ", " + AlertDescription.GetText(alertDescription));
 			if (message != null) {
 				handleError(null, message);
 			}
@@ -46,7 +51,7 @@ namespace WebuSocketCore.Encryption {
 		}
 
 		public override void NotifyAlertReceived (byte alertLevel, byte alertDescription) {
-			// Debug.LogError("TLS client received alert: " + AlertLevel.GetText(alertLevel) + ", " + AlertDescription.GetText(alertDescription));
+			// Log("TLS client received alert: " + AlertLevel.GetText(alertLevel) + ", " + AlertDescription.GetText(alertDescription));
 		}
 
 		public override void NotifyServerVersion (ProtocolVersion serverVersion) {
@@ -81,7 +86,6 @@ namespace WebuSocketCore.Encryption {
 				if (certificateTypes == null || !Arrays.Contains(certificateTypes, ClientCertificateType.rsa_sign)) {
 					return null;
 				}
-
 				// return TlsTestUtilities.LoadSignerCredentials(mContext, certificateRequest.SupportedSignatureAlgorithms, SignatureAlgorithm.rsa, "x509-client.pem", "x509-client-key.pem");
 				return null;
 			}
@@ -103,8 +107,8 @@ namespace WebuSocketCore.Encryption {
 
 				this.mSession = newSession;
 			}
-
-			handshaleDone();
+			
+			handshakeDone();
 		}
 	}
 }  

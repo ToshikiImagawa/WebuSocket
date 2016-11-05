@@ -23,6 +23,7 @@ namespace WebuSocketCore {
 
 	public enum WebuSocketErrorEnum {
 		UNKNOWN_ERROR,
+		DOMAIN_UNRESOLVED,
 		CONNECTION_FAILED,
 		TLS_HANDSHAKE_FAILED,
 		TLS_ERROR,
@@ -34,17 +35,23 @@ namespace WebuSocketCore {
     }
 	
 	public class WebuSocket {
-		private readonly EndPoint endPoint;
+		private EndPoint endPoint;
 		
+
+		
+		private const string CRLF = "\r\n";
+		private const string WEBSOCKET_VERSION = "13";
+
+
 		private SocketToken socketToken;
 		
-		public string webSocketConnectionId;
+		public readonly string webSocketConnectionId;
 		
 		public class SocketToken {
 			public SocketState socketState;
 			public readonly Socket socket;
 			
-			public byte[] receiveBuffer;// このバッファを切りはりしたくない = array コピーを発生させたくないが為に、もう一個バッファが生まれる。
+			public byte[] receiveBuffer;
 			
 			public readonly SocketAsyncEventArgs connectArgs;
 			public readonly SocketAsyncEventArgs sendArgs;
@@ -76,6 +83,10 @@ namespace WebuSocketCore {
 		private readonly Action<WebuSocketErrorEnum, Exception> OnError;
 		
 		private readonly string base64Key;
+
+		private readonly bool isWss; 
+		private readonly Encryption.WebuSocketTlsClientProtocol tlsClientProtocol;
+
 		private readonly byte[] websocketHandshakeRequestBytes;
 
 		public WebuSocket (
@@ -91,32 +102,90 @@ namespace WebuSocketCore {
 			this.webSocketConnectionId = Guid.NewGuid().ToString();
 			this.baseReceiveBufferSize = baseReceiveBufferSize;
 			
-			this.base64Key = WebSocketByteGenerator.GeneratePrivateBase64Key();
-			
-			var requstBytesAndHostAndPort = GenerateRequestData(url, additionalHeaderParams, base64Key);
-			websocketHandshakeRequestBytes = requstBytesAndHostAndPort.requestDataBytes;
-
-			this.endPoint = new IPEndPoint(IPAddress.Parse(requstBytesAndHostAndPort.host), requstBytesAndHostAndPort.port);
-			
 			this.OnConnected = OnConnected;
 			this.OnMessage = OnMessage;
 			this.OnPinged = OnPinged;
 			this.OnClosed = OnClosed;
 			this.OnError = OnError;
 			
+			this.base64Key = WebSocketByteGenerator.GeneratePrivateBase64Key();
+			
+			var uri = new Uri(url);
+			
+			var host = uri.Host;
+			var scheme = uri.Scheme;
+			var port = uri.Port;
+			
+			// check if dns or ip.
+			var isDns = (uri.HostNameType == UriHostNameType.Dns);
+			
+			// ready tls machine for wss.
+			if (scheme == "wss") {
+				isWss = true;
+				tlsClientProtocol = new Encryption.WebuSocketTlsClientProtocol();
+				tlsClientProtocol.Connect(new Encryption.WebuSocketTlsClient(TLSHandshakeDone, TLSHandleError));
+			}
+			
+			var requestHeaderParams = new Dictionary<string, string> {
+				{"Host", isDns ? uri.DnsSafeHost : uri.Authority},
+				{"Upgrade", "websocket"},
+				{"Connection", "Upgrade"},
+				{"Sec-WebSocket-Key", base64Key},
+				{"Sec-WebSocket-Version", WEBSOCKET_VERSION}
+			};
+
+			if (additionalHeaderParams != null) { 
+				foreach (var key in additionalHeaderParams.Keys) requestHeaderParams[key] = additionalHeaderParams[key];
+			}
+			
+			/*
+				construct http request bytes data.
+			*/
+			var requestData = new StringBuilder();
+			{
+				requestData.AppendFormat("GET {0} HTTP/1.1{1}", url, CRLF);
+				foreach (var key in requestHeaderParams.Keys) requestData.AppendFormat("{0}: {1}{2}", key, requestHeaderParams[key], CRLF);
+				requestData.Append(CRLF);
+			}
+
+			this.websocketHandshakeRequestBytes = Encoding.UTF8.GetBytes(requestData.ToString());
+
+			if (isDns) {
+				Dns.BeginGetHostEntry(
+					host, 
+					new AsyncCallback(
+						result => {
+							var addresses = Dns.EndGetHostEntry(result);
+							if (addresses.AddressList.Length == 0) {
+								if (OnError != null) {
+									var domainUnresolvedException = new Exception();
+									OnError(WebuSocketErrorEnum.DOMAIN_UNRESOLVED, domainUnresolvedException);
+								}
+								Disconnect();
+								return;
+							}
+
+							// choose 1st ip.
+							var ip = addresses.AddressList[0];	
+							this.endPoint = new IPEndPoint(ip, port);
+
+							StartConnectAsync();
+						}
+					),
+					this
+				);
+				return;
+			}
+				
+			// ip.
+			this.endPoint = new IPEndPoint(IPAddress.Parse(host), port);
 			StartConnectAsync();
 		}
 		
-		
-		private const string CRLF = "\r\n";
-		private const string WEBSOCKET_VERSION = "13"; 
-		private bool isWss;
-		private Encryption.WebuSocketTlsClientProtocol tlsClientProtocol;
-
 		private void TLSHandshakeDone () {
 			switch (socketToken.socketState) {
 				case SocketState.TLS_HANDSHAKING: {
-					SendWSHandshake();
+					SendWSHandshake(socketToken);
 					break;
 				}
 				default: {
@@ -137,94 +206,6 @@ namespace WebuSocketCore {
 			}
 			Disconnect();
 		}
-
-		private RequestDataBytesAndHostAndPort GenerateRequestData (string urlSource, Dictionary<string, string> additionalHeaderParams, string base64Key) {
-			var uri = new Uri(urlSource);
-			
-			var method = "GET";
-			var host = uri.Host;
-			var schm = uri.Scheme;
-			var port = uri.Port;
-			
-			if (schm == "wss") {
-				isWss = true;
-				tlsClientProtocol = new Encryption.WebuSocketTlsClientProtocol();
-				tlsClientProtocol.Connect(new Encryption.WebuSocketTlsClient(TLSHandshakeDone, TLSHandleError));
-			}
-
-			var ip = string.Empty;
-			
-			var ipPartsCandidate = host.Split('.');
-			var isIp = true;
-			foreach (var part in ipPartsCandidate) {
-				double retNum;
-				isIp = double.TryParse(part, out retNum);
-			}
-			if (!isIp) {
-				var ipCandidates = Dns.GetHostAddresses(host);
-				if (ipCandidates.Length == 0) {
-					throw new Exception("unavailable url:" + urlSource);
-				}
-
-				ip = ipCandidates[0].ToString();
-				// Debug.LogError("ip:" + ip);
-				// Debug.LogError("まだ途中。ipなのかdomainなのか見極めて云々したい。まーipだと思ってぶちこんでエラーで云々でもいいんだけど、、");
-			} else {
-				ip = host;
-			}
-
-			var hostParam = uri.Authority;
-			if (
-				(port == 80 && schm == "ws") || 
-				(port == 443 && schm == "wss")
-			) {
-				hostParam = uri.DnsSafeHost; 
-			}
-			
-			
-			var requestHeaderParams = new Dictionary<string, string>{
-				{"Host", hostParam},
-				{"Upgrade", "websocket"},
-				{"Connection", "Upgrade"},
-				{"Sec-WebSocket-Key", base64Key},
-				{"Sec-WebSocket-Version", WEBSOCKET_VERSION}
-			};
-
-			if (additionalHeaderParams != null) { 
-				foreach (var key in additionalHeaderParams.Keys) requestHeaderParams[key] = additionalHeaderParams[key];
-			}
-			
-			/*
-				construct request bytes data.
-			*/
-			var requestData = new StringBuilder();
-			
-			requestData.AppendFormat("{0} {1} HTTP/{2}{3}", method, uri, "1.1", CRLF);
-
-			foreach (var key in requestHeaderParams.Keys) requestData.AppendFormat("{0}: {1}{2}", key, requestHeaderParams[key], CRLF);
-
-			requestData.Append(CRLF);
-
-			var entity = string.Empty;
-			requestData.Append(entity);
-			
-			var reqBytes = Encoding.UTF8.GetBytes(requestData.ToString().ToCharArray()); 
-			return new RequestDataBytesAndHostAndPort(ip, port, reqBytes);
-		}
-		
-		
-		public struct RequestDataBytesAndHostAndPort {
-			public string host;
-			public int port;
-			public byte[] requestDataBytes;
-			
-			public RequestDataBytesAndHostAndPort (string host, int port, byte[] requestDataBytes) {
-				this.host = host;
-				this.port = port;
-				this.requestDataBytes = requestDataBytes;
-			}
-		}
-		
 		
 		private void StartConnectAsync () {
 			var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -254,68 +235,71 @@ namespace WebuSocketCore {
 		private byte[] webSocketHandshakeResult;
 		private void OnConnect (object unused, SocketAsyncEventArgs args) {
 			var token = (SocketToken)args.UserToken;
-
-			{
-				switch (token.socketState) {
-					case SocketState.CONNECTING: {
-						if (args.SocketError != SocketError.Success) {
-							token.socketState = SocketState.CLOSED;
-							
-							if (OnError != null) {
-								var error = new Exception("connect error:" + args.SocketError.ToString());
-								OnError(WebuSocketErrorEnum.CONNECTION_FAILED, error);
-							}
-							return;
-						}
-
-						// ready receive.
-						ReadyReceivingNewData(token);
-
-						if (isWss) {
-							token.socketState = SocketState.TLS_HANDSHAKING;
-							
-							// first, send clientHello to server.
-							// get ClientHello byte data from tlsClientProtocol instance and send it to server.
-							var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
-							tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
-							
-							token.sendArgs.SetBuffer(buffer, 0, buffer.Length);
-							if (!token.socket.SendAsync(token.sendArgs)) OnSend(token.socket, token.sendArgs);
-							return;
-						}
+			switch (token.socketState) {
+				case SocketState.CONNECTING: {
+					if (args.SocketError != SocketError.Success) {
+						token.socketState = SocketState.CLOSED;
 						
-						SendWSHandshake();
-						return;
-					}
-					default: {
-						// unexpected error, should fall this connection.
 						if (OnError != null) {
-							var error = new Exception("unexpcted connection state error.");
+							var error = new Exception("connect error:" + args.SocketError.ToString());
 							OnError(WebuSocketErrorEnum.CONNECTION_FAILED, error);
 						}
-						Disconnect();
 						return;
 					}
+
+					if (isWss) {
+						SendTLSHandshake(token);
+						return;
+					}
+					
+					SendWSHandshake(token);
+					return;
+				}
+				default: {
+					// unexpected error, should fall this connection.
+					if (OnError != null) {
+						var error = new Exception("unexpcted connection state error.");
+						OnError(WebuSocketErrorEnum.CONNECTION_FAILED, error);
+					}
+					Disconnect();
+					return;
 				}
 			}
 		}
 
-		private void SendWSHandshake () {
-			socketToken.socketState = SocketState.WS_HANDSHAKING;
+		private void SendTLSHandshake (SocketToken token) {
+			token.socketState = SocketState.TLS_HANDSHAKING;
+							
+			// ready receive.
+			ReadyReceivingNewData(token);
+		
+			// first, send clientHello to server.
+			// get ClientHello byte data from tlsClientProtocol instance and send it to server.
+			var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
+			tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
 			
+			token.sendArgs.SetBuffer(buffer, 0, buffer.Length);
+			if (!token.socket.SendAsync(token.sendArgs)) OnSend(token.socket, token.sendArgs);
+		}
+
+		private void SendWSHandshake (SocketToken token) {
+			token.socketState = SocketState.WS_HANDSHAKING;
+			
+			ReadyReceivingNewData(token);
+
 			if (isWss) {
 				tlsClientProtocol.OfferOutput(websocketHandshakeRequestBytes, 0, websocketHandshakeRequestBytes.Length);
 				
 				var count = tlsClientProtocol.GetAvailableOutputBytes();
 				var buffer = new byte[count];
 				tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
-
-				socketToken.sendArgs.SetBuffer(buffer, 0, buffer.Length);
+			
+				token.sendArgs.SetBuffer(buffer, 0, buffer.Length);
 			} else {
-				socketToken.sendArgs.SetBuffer(websocketHandshakeRequestBytes, 0, websocketHandshakeRequestBytes.Length);
+				token.sendArgs.SetBuffer(websocketHandshakeRequestBytes, 0, websocketHandshakeRequestBytes.Length);
 			}
 			
-			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
+			if (!token.socket.SendAsync(token.sendArgs)) OnSend(token.socket, token.sendArgs);
 		}
 
 		private void OnDisconnected (object unused, SocketAsyncEventArgs args) {
@@ -401,26 +385,42 @@ namespace WebuSocketCore {
 			
 			switch (token.socketState) {
 				case SocketState.TLS_HANDSHAKING: {
-					var responseFromServer = new byte[args.BytesTransferred];
-					Buffer.BlockCopy(args.Buffer, 0, responseFromServer, 0, responseFromServer.Length);
-					
 					// set received data to tlsClientProtocol by "OfferInput" method.
 					// tls handshake phase will progress.
-					tlsClientProtocol.OfferInput(responseFromServer);
+					tlsClientProtocol.OfferInputBytes(args.Buffer, args.BytesTransferred);
 
-					// and next handshake data can be get from tlsClientProtocol.
-					var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
+					// state is changed if tls handshake is done inside tlsClientProtocol.
+					// do nothing.
+					if (token.socketState != SocketState.TLS_HANDSHAKING) {
+						return;
+					} 
+
+					/*
+						continue handshaking.
+					*/
+
+					var outputBufferSize = tlsClientProtocol.GetAvailableOutputBytes();
+					
+					if (outputBufferSize == 0) {
+						// ready receive next data.
+						ReadyReceivingNewData(token);
+						return;
+					}
+
+					// next tls handshake data is ready inside tlsClientProtocol.
+					var buffer = new byte[outputBufferSize];
 					tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
 
 					// ready receive next data.
 					ReadyReceivingNewData(token);
-						
+					
 					// send.
 					token.sendArgs.SetBuffer(buffer, 0, buffer.Length);
 					if (!token.socket.SendAsync(token.sendArgs)) OnSend(token.socket, token.sendArgs);
 					return;
 				}
 				case SocketState.WS_HANDSHAKING: {
+					 
 					var receivedData = new byte[args.BytesTransferred];
 					Buffer.BlockCopy(args.Buffer, 0, receivedData, 0, receivedData.Length);
 					
@@ -437,8 +437,6 @@ namespace WebuSocketCore {
 								Array.Resize(ref webSocketHandshakeResult, webSocketHandshakeResult.Length + length);
 							}
 
-							// このReadInputの代わりに、内容のコピーを試しに取得できれば良い感じになる。この関数のデータは整合性が取れたら捨てる、みたいな処理ができればそれはそれで価値がありそう。
-							// とりあえずこれで動かしてみる。
 							tlsClientProtocol.ReadInput(webSocketHandshakeResult, index, length);
 						}
 
@@ -486,28 +484,23 @@ namespace WebuSocketCore {
 				}
 				case SocketState.OPENED: {
 					if (isWss) {
-						// 切り出しが必ずbyte[]の形で必要なの地獄っぽい。なんとかできるかな。
-						var buffer = new byte[args.BytesTransferred];
-						Buffer.BlockCopy(args.Buffer, 0, buffer, 0, buffer.Length);
-						
-						tlsClientProtocol.OfferInput(buffer);
-
+						// write input to tls buffer.
+						tlsClientProtocol.OfferInputBytes(args.Buffer, args.BytesTransferred);
 
 						if (0 < tlsClientProtocol.GetAvailableInputBytes()) {
 							var additionalLen = tlsClientProtocol.GetAvailableInputBytes();
 							
 							if (wsBuffer.Length < wsBufIndex + additionalLen) {
 								Array.Resize(ref wsBuffer, wsBufIndex + additionalLen);
-								// Debug.LogError("resize, wsBuffer:" + wsBuffer.Length);
+								// resizeイベント発生をどう出すかな〜〜
 							}
 
-							// transfer from tls buffer to wsBuffer.
-							// 仮読み出しと破棄読み出しを実装できれば、こいつが1次バッファでいい感じがする
+							// transfer bytes from tls buffer to wsBuffer.
 							tlsClientProtocol.ReadInput(wsBuffer, wsBufIndex, additionalLen);
 							
 							wsBufLength = wsBufLength + additionalLen; 
 						} else {
-							// Debug.LogError("incomlete tls bytes, continue.");
+							// received incomlete tls bytes, continue.
 							ReadyReceivingNewData(token);
 							return;
 						}
@@ -516,7 +509,7 @@ namespace WebuSocketCore {
 
 						if (wsBuffer.Length < wsBufIndex + additionalLen) {
 							Array.Resize(ref wsBuffer, wsBufIndex + additionalLen);
-							// Debug.LogError("resize, wsBuffer:" + wsBuffer.Length);
+							// resizeイベント発生をどう出すかな〜〜
 						}
 
 						Buffer.BlockCopy(args.Buffer, 0, wsBuffer, wsBufIndex, additionalLen);
