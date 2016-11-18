@@ -10,41 +10,41 @@ using WebuSocketCore;
     repeat connect -> disconnect -> reconnect -> disconnect... 
 */
 public class ReconnectionSampleScript : MonoBehaviour {
-	
-	WebuSocket webSocket;
-	
-	bool opened = false;
 
-	void Start () {
-		webSocket = new WebuSocket(
-			"wss://echo.websocket.org:443/",
+    WebuSocket webSocket;
+
+    bool opened = false;
+
+    void Start () {
+        webSocket = new WebuSocket(
+            "wss://echo.websocket.org:443/",
             1024,
             () => {
-				Debug.Log("connection succeeded.");
+                Debug.Log("connection succeeded.");
                 opened = true;
-			},
+            },
             datas => {},
-			() => {},
-			closeReason => {
-				Debug.Log("closed, closeReason:" + closeReason);
+            () => { },
+            closeReason => {
+                Debug.Log("closed, closeReason:" + closeReason);
                 switch (closeReason) {
                     case WebuSocketCloseEnum.CLOSED_BY_TIMEOUT: {
-                        Debug.Log("start reconnect.");
-                        StartCoroutine(Reconnection(webSocket));
-                        break;
-                    }
-                } 
-			}
-		);
-	}
+						Debug.Log("start reconnect.");
+						StartCoroutine(Reconnection(webSocket));
+						break;
+					}
+                }
+            }
+        );
+    }
 
     private IEnumerator Reconnection (WebuSocket ws) {
         yield return new WaitForSeconds(1);
         webSocket = WebuSocket.Reconnect(ws);
-    } 
+    }
 
-	int frame = 0;
-	void Update () {
+    int frame = 0;
+    void Update () {
         // disconnect after 2sec.
         if (opened) {
             if (frame == 120) {
@@ -54,9 +54,9 @@ public class ReconnectionSampleScript : MonoBehaviour {
             }
             frame++;
         }
-	}
+    }
 
-	void OnApplicationQuit () {
-		webSocket.Disconnect(true);
-	}
+    void OnApplicationQuit() {
+        webSocket.Disconnect(true);
+    }
 }
