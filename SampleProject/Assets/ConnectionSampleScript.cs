@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
@@ -9,11 +8,13 @@ using WebuSocketCore;
 
 
 /**
-	simple websocket connection class.
+	webuSocket connection sample.
 */
-public class SampleScript : MonoBehaviour {
-	// 
+public class ConnectionSampleScript : MonoBehaviour {
+	
 	WebuSocket webSocket;
+	
+	bool opened = false;
 
 	void Start () {
 
@@ -26,6 +27,7 @@ public class SampleScript : MonoBehaviour {
 
 			// handler for connection established to server.
 			() => {
+				opened = true;
 				Debug.Log("connected to websocket echo-server. send hello to echo-server");
 				webSocket.SendString("hello!");
 				webSocket.SendString("wooooo!");
@@ -53,9 +55,37 @@ public class SampleScript : MonoBehaviour {
 
 					Debug.Log("message:" + Encoding.UTF8.GetString(bytes));
 				}
+			},
+			() => {
+				Debug.LogError("server ping received. automatically pong.");
+			},
+			closeReason => {
+				Debug.Log("closed, closeReason:" + closeReason);
+			},
+			(errorEnum, exception) => {
+				Debug.LogError("error, errorEnum:" + errorEnum + " exception:" + exception);
+			},
+			new Dictionary<string, string>{
+				// set WebSocket connection header parameters here!
 			}
-
-			// other handlers are for error and close event handling.
 		);
+	}
+
+	int frame = 0;
+	void Update () {
+		frame++;
+
+		// interval basis check for connection status.
+		// check connection / 1 sec.
+		if (opened && frame % (60 * 1) == 0) {
+			if (!webSocket.IsConnected()) {
+				Debug.LogError("disconnection detected. frame:" + frame);
+				opened = false;
+			}
+		}
+	}
+
+	void OnApplicationQuit () {
+		webSocket.Disconnect(true);
 	}
 }

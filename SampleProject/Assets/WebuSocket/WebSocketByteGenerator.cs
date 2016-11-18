@@ -135,8 +135,10 @@ namespace WebuSocketCore {
 		public static List<OpCodeAndPayloadIndex> GetIndexies (byte[] data) {
 			var opCodeAndPayloadIndexies = new List<OpCodeAndPayloadIndex>();
 			
+			uint messageHead;
 			uint cursor = 0;
 			while (cursor < data.Length) {
+				messageHead = cursor;
 				
 				// first byte = fin(1), rsv1(1), rsv2(1), rsv3(1), opCode(4)
 				var opCode = (byte)(data[cursor++] & OPFilter);

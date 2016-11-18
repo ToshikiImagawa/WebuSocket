@@ -1,12 +1,15 @@
 #WebuSocket
 
 WebSocket Client implementation for C#.  
-ver 0.6.7
+ver 0.7.0
 
 ##motivation
 
-* async default
-* runnable on C# 3.5 or later(includes Unity.)
+* async default.
+* lightweight.
+* no thread. 
+* no task.
+* runnable on C# 3.5 or later(includes Unity).
 
 ##usage
 
@@ -39,11 +42,21 @@ var webuSocket = new WebuSocket(
 	}, 
 	customHeaderKeyValues // Dictionary<string, string> which can send with connecting signal.
 );
-```			
+```	
+
+sample unity project is here  
+[SampleProject](https://github.com/sassembla/WebuSocket/tree/master/SampleProject)
+
+##implemented
+* basic WebSocket API
+* connect by ip
+* connect by domain
+* tls
+* reconnection
+* disconnect detection
 
 ##not yet implemented
-* timeout setting
-* redirection
+* redirection(necessary?)
 * tls 1.3
 * else...
 

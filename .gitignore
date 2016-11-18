@@ -25,3 +25,15 @@ Assets/Plugins/UniRx.meta
 ProjectSettings/ProjectVersion.txt
 
 *.meta
+
+SampleProject/.vscode/*
+
+SampleProject/Assets/VSCode/*
+
+SampleProject/Library/*
+
+SampleProject/obj/*
+
+SampleProject/ProjectSettings/*
+
+SampleProject/SampleProject.sln

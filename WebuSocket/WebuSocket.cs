@@ -17,8 +17,8 @@ namespace WebuSocketCore {
 	public enum WebuSocketCloseEnum {
 		CLOSED_FORCELY,
 		CLOSED_GRACEFULLY,
-		CLOSED_WHILE_RECEIVING,
-		CLOSED_BY_SERVER
+		CLOSED_BY_SERVER,
+		CLOSED_BY_TIMEOUT
 	}
 
 	public enum WebuSocketErrorEnum {
@@ -29,12 +29,30 @@ namespace WebuSocketCore {
 		TLS_ERROR,
 		WS_HANDSHAKE_KEY_UNMATCHED,
 		SEND_FAILED,
+		PING_FAILED,
+		PONG_FAILED,
 		RECEIVE_FAILED,
         CONNECTING,
         ALREADY_DISCONNECTED,
     }
 	
 	public class WebuSocket {
+		/**
+			create new WebuSocket instance from source WebuSocket instance.
+		*/
+		public static WebuSocket Reconnect (WebuSocket sourceSocket) {
+			return new WebuSocket(
+				sourceSocket.url,
+				sourceSocket.baseReceiveBufferSize,
+				sourceSocket.OnConnected,
+				sourceSocket.OnMessage,
+				sourceSocket.OnPinged,
+				sourceSocket.OnClosed,
+				sourceSocket.OnError,
+				sourceSocket.additionalHeaderParams
+			);
+		}
+
 		private EndPoint endPoint;
 		
 
@@ -49,6 +67,7 @@ namespace WebuSocketCore {
 		
 		public class SocketToken {
 			public SocketState socketState;
+			public WebuSocketCloseEnum closeReason;
 			public readonly Socket socket;
 			
 			public byte[] receiveBuffer;
@@ -74,14 +93,24 @@ namespace WebuSocketCore {
 			}
 		}
 		
-		private readonly int baseReceiveBufferSize;
+		/*
+			WebuSocket basement parameters.
+		*/
+		public readonly string url;
+		public readonly int baseReceiveBufferSize;
 		
-		private readonly Action OnConnected;
-		private readonly Action OnPinged;
-		private readonly Action<Queue<ArraySegment<byte>>> OnMessage;
-		private readonly Action<WebuSocketCloseEnum> OnClosed;
-		private readonly Action<WebuSocketErrorEnum, Exception> OnError;
+		public readonly Action OnConnected;
+		public readonly Action OnPinged;
+		public readonly Action<Queue<ArraySegment<byte>>> OnMessage;
+		public readonly Action<WebuSocketCloseEnum> OnClosed;
+		public readonly Action<WebuSocketErrorEnum, Exception> OnError;
 		
+		public readonly Dictionary<string, string> additionalHeaderParams;
+
+
+		/*
+			temporary parameters.
+		*/
 		private readonly string base64Key;
 
 		private readonly bool isWss; 
@@ -100,6 +129,8 @@ namespace WebuSocketCore {
 			Dictionary<string, string> additionalHeaderParams=null
 		) {
 			this.webSocketConnectionId = Guid.NewGuid().ToString();
+			
+			this.url = url;
 			this.baseReceiveBufferSize = baseReceiveBufferSize;
 			
 			this.OnConnected = OnConnected;
@@ -107,6 +138,8 @@ namespace WebuSocketCore {
 			this.OnPinged = OnPinged;
 			this.OnClosed = OnClosed;
 			this.OnError = OnError;
+
+			this.additionalHeaderParams = additionalHeaderParams;
 			
 			this.base64Key = WebSocketByteGenerator.GeneratePrivateBase64Key();
 			
@@ -121,8 +154,8 @@ namespace WebuSocketCore {
 			
 			// ready tls machine for wss.
 			if (scheme == "wss") {
-				isWss = true;
-				tlsClientProtocol = new Encryption.WebuSocketTlsClientProtocol();
+				this.isWss = true;
+				this.tlsClientProtocol = new Encryption.WebuSocketTlsClientProtocol();
 				tlsClientProtocol.Connect(new Encryption.WebuSocketTlsClient(TLSHandshakeDone, TLSHandleError));
 			}
 			
@@ -149,16 +182,27 @@ namespace WebuSocketCore {
 			}
 
 			this.websocketHandshakeRequestBytes = Encoding.UTF8.GetBytes(requestData.ToString());
-
+			
 			if (isDns) {
 				Dns.BeginGetHostEntry(
 					host, 
 					new AsyncCallback(
 						result => {
-							var addresses = Dns.EndGetHostEntry(result);
+							IPHostEntry addresses = null;
+
+							try {
+								addresses = Dns.EndGetHostEntry(result);
+							} catch (Exception e) {
+								if (OnError != null) {
+									OnError(WebuSocketErrorEnum.DOMAIN_UNRESOLVED, e);
+								}
+								Disconnect();
+								return;
+							}
+
 							if (addresses.AddressList.Length == 0) {
 								if (OnError != null) {
-									var domainUnresolvedException = new Exception();
+									var domainUnresolvedException = new Exception("failed to resolve domain.");
 									OnError(WebuSocketErrorEnum.DOMAIN_UNRESOLVED, domainUnresolvedException);
 								}
 								Disconnect();
@@ -210,6 +254,7 @@ namespace WebuSocketCore {
 		private void StartConnectAsync () {
 			var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 			clientSocket.NoDelay = true;
+			clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
 			
 			var connectArgs = new SocketAsyncEventArgs();
 			connectArgs.AcceptSocket = clientSocket;
@@ -319,7 +364,10 @@ namespace WebuSocketCore {
 							// do nothing.
 						}
 
-						if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_GRACEFULLY);
+						if (OnClosed != null) {
+							if (token.closeReason != WebuSocketCloseEnum.CLOSED_GRACEFULLY) OnClosed(token.closeReason);
+							else OnClosed(WebuSocketCloseEnum.CLOSED_GRACEFULLY);
+						}
 					} 
 					break;
 				}
@@ -572,7 +620,7 @@ namespace WebuSocketCore {
 			if (!token.socket.ReceiveAsync(token.receiveArgs)) OnReceived(token.socket, token.receiveArgs);
 		}
 		
-		public void Disconnect (bool force=false) {
+		public void Disconnect (bool force=false, WebuSocketCloseEnum closeReason=WebuSocketCloseEnum.CLOSED_FORCELY) {
 			lock (lockObj) {
 				switch (socketToken.socketState) {
 					case SocketState.CLOSING:
@@ -588,12 +636,12 @@ namespace WebuSocketCore {
 								// do nothing.
 							}
 							socketToken.socketState = SocketState.CLOSED;
-							if (OnClosed != null) OnClosed(WebuSocketCloseEnum.CLOSED_FORCELY); 
+							if (OnClosed != null) OnClosed(closeReason);
 							return;
 						}
 
 						socketToken.socketState = SocketState.CLOSING;
-						
+						if (closeReason != WebuSocketCloseEnum.CLOSED_FORCELY) socketToken.closeReason = closeReason;
 						StartCloseAsync();
 						break;
 					}
@@ -614,14 +662,6 @@ namespace WebuSocketCore {
 			if (!socketToken.socket.SendAsync(closeEventArgs)) OnDisconnected(socketToken.socket, closeEventArgs);
 		}
 		
-		private bool IsSocketConnected (Socket s) {
-			bool part1 = s.Poll(10, SelectMode.SelectRead);
-			bool part2 = (s.Available == 0);
-			
-			if (part1 && part2) return false;
-			
-			return true;
-		}
 		
 		public static byte ByteCR = Convert.ToByte('\r');
 		public static byte ByteLF = Convert.ToByte('\n');
@@ -826,11 +866,97 @@ namespace WebuSocketCore {
 		
 		private Action OnPonged;
 		public void Ping (Action OnPonged) {
+			if (socketToken.socketState != SocketState.OPENED) {
+				WebuSocketErrorEnum ev = WebuSocketErrorEnum.UNKNOWN_ERROR;
+				Exception error = null;
+				switch (socketToken.socketState) {
+					case SocketState.TLS_HANDSHAKING:
+					case SocketState.WS_HANDSHAKING: {
+						ev = WebuSocketErrorEnum.CONNECTING;
+						error = new Exception("send error:" + "not yet connected.");
+						break;
+					}
+					case SocketState.CLOSING:
+					case SocketState.CLOSED: {
+						ev = WebuSocketErrorEnum.ALREADY_DISCONNECTED;
+						error = new Exception("send error:" + "connection was already closed. please create new connection by new WebuSocket().");
+						break;
+					}
+					default: {
+						ev = WebuSocketErrorEnum.CONNECTING;
+						error = new Exception("send error:" + "not yet connected.");
+						break;
+					}
+				}
+				if (OnError != null) OnError(ev, error);
+				return;
+			}
+
 			this.OnPonged = OnPonged;
 			var pingBytes = WebSocketByteGenerator.Ping();
 			
-			socketToken.sendArgs.SetBuffer(pingBytes, 0, pingBytes.Length);
-			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);	
+			if (isWss) {
+				tlsClientProtocol.OfferOutput(pingBytes, 0, pingBytes.Length);
+				
+				var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
+				tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
+
+				try {
+					socketToken.socket.BeginSend(
+						buffer, 
+						0, 
+						buffer.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "ping failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.PING_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.PING_FAILED, e);
+					}
+					Disconnect();
+				}
+			} else {
+				try {
+					socketToken.socket.BeginSend(
+						pingBytes, 
+						0, 
+						pingBytes.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "ping failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.PING_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.PING_FAILED, e);
+					}
+					Disconnect();
+				}
+			}
 		}
 		
 		public void Send (byte[] data) {
@@ -861,21 +987,71 @@ namespace WebuSocketCore {
 			}
 
 			var payloadBytes = WebSocketByteGenerator.SendBinaryData(data);
-
+			
 			if (isWss) {
 				tlsClientProtocol.OfferOutput(payloadBytes, 0, payloadBytes.Length);
 				
 				var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
 				tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
 
-				socketToken.sendArgs.SetBuffer(buffer, 0, buffer.Length);
+				try {
+					socketToken.socket.BeginSend(
+						buffer, 
+						0, 
+						buffer.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "send failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.SEND_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.SEND_FAILED, e);
+					}
+					Disconnect();
+				}
 			} else {
-				socketToken.sendArgs.SetBuffer(payloadBytes, 0, payloadBytes.Length);
+				try {
+					socketToken.socket.BeginSend(
+						payloadBytes, 
+						0, 
+						payloadBytes.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "send failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.SEND_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.SEND_FAILED, e);
+					}
+					Disconnect();
+				}
 			}
-			
-			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
 		}
-
+		
 		public void SendString (string data) {
 			if (socketToken.socketState != SocketState.OPENED) {
 				WebuSocketErrorEnum ev = WebuSocketErrorEnum.UNKNOWN_ERROR;
@@ -912,19 +1088,154 @@ namespace WebuSocketCore {
 				var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
 				tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
 
-				socketToken.sendArgs.SetBuffer(buffer, 0, buffer.Length);
+				try {
+					socketToken.socket.BeginSend(
+						buffer, 
+						0, 
+						buffer.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "send failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.SEND_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.SEND_FAILED, e);
+					}
+					Disconnect();
+				}
 			} else {
-				socketToken.sendArgs.SetBuffer(payloadBytes, 0, payloadBytes.Length);
+				try {
+					socketToken.socket.BeginSend(
+						payloadBytes, 
+						0, 
+						payloadBytes.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "send failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.SEND_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.SEND_FAILED, e);
+					}
+					Disconnect();
+				}
 			}
-
-			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);
 		}
 
-		public bool IsConnected () {
+		private bool IsConnectionOpened () {
 			if (socketToken.socketState != SocketState.OPENED) return false;
 			return true;
 		}
-		
+
+		/**
+			After connection opened,
+			you can call this method on a regular basis for detect timeout/disconnect.
+			
+			this method calls Ping API internally for detecting send-timeout.
+			
+			If the timeout is detected, WebSocket will be closed asynchronously.
+			and WebuSocketCloseEnum is "CLOSED_BY_TIMEOUT" at that time. 
+
+			you can check if the connection is closed by timeout or not by checking the WebuSocketCloseEnum on "OnClosed" handler.
+
+
+			If the connection is not yet opened, this method does nothing. 
+			only return false.
+		*/
+		public bool IsConnected () {
+			// state check.
+			if (!IsConnectionOpened()) return false;
+
+			/*
+				create coroutine for holding timeout checker.
+			*/
+			if (timeoutCheckCoroutine == null) {
+				timeoutCheckCoroutine = GenerateTimeoutCheckCoroutine();
+			}
+			
+			// update coroutine.
+			timeoutCheckCoroutine.MoveNext();
+			var isConnected = timeoutCheckCoroutine.Current;
+			
+			if (!isConnected) {
+				Disconnect(false, WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
+			}
+
+			return isConnected;
+		}
+
+		private IEnumerator<bool> timeoutCheckCoroutine;
+		private IEnumerator<bool> GenerateTimeoutCheckCoroutine () {
+			var waitingPong = true;
+
+			Ping(
+				() => {
+					waitingPong = false;
+				}
+			);
+			
+			// first, return true.
+			yield return true;
+
+			// second and later.
+			while (true) {
+				/*
+					if state is not OPENED, this connection is already disconnected.
+				*/
+				var isConnectedSync = IsConnectionOpened();
+				if (!isConnectedSync) {
+					yield return false;
+					break;
+				}
+
+				/*
+					if pong is not returned yet, this is timeout.
+					this connection is already disconnected.
+				*/
+				if (waitingPong) {
+					yield return false;
+					break;
+				}
+				
+				/*
+					set next ping for detecting timeout.
+				*/
+				waitingPong = true;
+				Ping(
+					() => {
+						waitingPong = false;
+					}
+				);
+
+				yield return true;
+			}
+		}
+
+
 		private void CloseReceived () {
 			lock (lockObj) {
 				switch (socketToken.socketState) {
@@ -946,12 +1257,76 @@ namespace WebuSocketCore {
 			if (OnPinged != null) OnPinged();
 			
 			var pongBytes = WebSocketByteGenerator.Pong();
-			socketToken.sendArgs.SetBuffer(pongBytes, 0, pongBytes.Length);
-			if (!socketToken.socket.SendAsync(socketToken.sendArgs)) OnSend(socketToken.socket, socketToken.sendArgs);	
+
+			if (isWss) {
+				tlsClientProtocol.OfferOutput(pongBytes, 0, pongBytes.Length);
+				
+				var buffer = new byte[tlsClientProtocol.GetAvailableOutputBytes()];
+				tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
+
+				try {
+					socketToken.socket.BeginSend(
+						buffer, 
+						0, 
+						buffer.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "pong failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.PONG_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.PONG_FAILED, e);
+					}
+					Disconnect();
+				}
+			} else {
+				try {
+					socketToken.socket.BeginSend(
+						pongBytes, 
+						0, 
+						pongBytes.Length, 
+						SocketFlags.None, 
+						result => {
+							var s = (Socket)result.AsyncState;
+							var len = s.EndSend(result);
+							if (0 < len) {
+								// do nothing.
+							} else {
+								// send failed.
+								if (OnError != null) {
+									var error = new Exception("send error:" + "pong failed by unknown reason.");
+									OnError(WebuSocketErrorEnum.PONG_FAILED, error);
+								}
+							}
+						}, 
+						socketToken.socket
+					);
+				} catch (Exception e) {
+					if (OnError != null) {
+						OnError(WebuSocketErrorEnum.PONG_FAILED, e);
+					}
+					Disconnect();
+				}
+			}	
 		}
 		
 		private void PongReceived () {
-			if (OnPonged != null) OnPonged();
+			if (OnPonged != null) {
+				OnPonged();
+				OnPonged = null;
+			}
 		}
 	}
 }
