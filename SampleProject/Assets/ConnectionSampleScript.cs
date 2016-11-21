@@ -57,7 +57,7 @@ public class ConnectionSampleScript : MonoBehaviour {
 				}
 			},
 			() => {
-				Debug.LogError("server ping received. automatically pong.");
+				Debug.Log("received server ping. automatically pong.");
 			},
 			closeReason => {
 				Debug.Log("closed, closeReason:" + closeReason);
@@ -67,7 +67,8 @@ public class ConnectionSampleScript : MonoBehaviour {
 			},
 			new Dictionary<string, string>{
 				// set WebSocket connection header parameters here!
-			}
+			},
+			timeoutSec:10
 		);
 	}
 

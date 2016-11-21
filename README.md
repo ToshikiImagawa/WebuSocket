@@ -1,14 +1,14 @@
 #WebuSocket
 
 WebSocket Client implementation for C#.  
-ver 0.7.0
+ver 0.7.1
 
 ##motivation
 
 * async default.
 * lightweight.
-* no thread. 
-* no task.
+* thread free. 
+* task free.
 * runnable on C# 3.5 or later(includes Unity).
 
 ##usage
@@ -53,7 +53,7 @@ sample unity project is here
 * connect by domain
 * tls
 * reconnection
-* disconnect detection
+* disconnect detection(timeout)
 
 ##not yet implemented
 * redirection(necessary?)

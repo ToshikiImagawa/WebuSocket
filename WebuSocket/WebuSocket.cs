@@ -5,7 +5,9 @@ using System.Net.Sockets;
 using System.Text;
 
 namespace WebuSocketCore {
+	
     public enum SocketState {
+		EMPTY,
 		CONNECTING,
 		TLS_HANDSHAKING,
 		WS_HANDSHAKING,
@@ -15,7 +17,7 @@ namespace WebuSocketCore {
 	}
 
 	public enum WebuSocketCloseEnum {
-		CLOSED_FORCELY,
+		CLOSED_FORCIBLY,
 		CLOSED_GRACEFULLY,
 		CLOSED_BY_SERVER,
 		CLOSED_BY_TIMEOUT
@@ -37,6 +39,8 @@ namespace WebuSocketCore {
     }
 	
 	public class WebuSocket {
+		public const int DEFAULT_TIMEOUT_SEC = 10;
+
 		/**
 			create new WebuSocket instance from source WebuSocket instance.
 		*/
@@ -55,7 +59,7 @@ namespace WebuSocketCore {
 
 		private EndPoint endPoint;
 		
-
+		private readonly int timeoutSec;
 		
 		private const string CRLF = "\r\n";
 		private const string WEBSOCKET_VERSION = "13";
@@ -90,6 +94,13 @@ namespace WebuSocketCore {
 				this.receiveArgs.UserToken = this;
 				
 				this.receiveArgs.SetBuffer(receiveBuffer, 0, receiveBuffer.Length);
+			}
+
+			/*
+				default constructor.
+			*/
+			public SocketToken () {
+				this.socketState = SocketState.EMPTY;
 			}
 		}
 		
@@ -126,7 +137,8 @@ namespace WebuSocketCore {
 			Action OnPinged=null,
 			Action<WebuSocketCloseEnum> OnClosed=null,
 			Action<WebuSocketErrorEnum, Exception> OnError=null,
-			Dictionary<string, string> additionalHeaderParams=null
+			Dictionary<string, string> additionalHeaderParams=null,
+			int timeoutSec=DEFAULT_TIMEOUT_SEC
 		) {
 			this.webSocketConnectionId = Guid.NewGuid().ToString();
 			
@@ -141,6 +153,8 @@ namespace WebuSocketCore {
 
 			this.additionalHeaderParams = additionalHeaderParams;
 			
+			this.timeoutSec = timeoutSec;
+
 			this.base64Key = WebSocketByteGenerator.GeneratePrivateBase64Key();
 			
 			var uri = new Uri(url);
@@ -148,6 +162,7 @@ namespace WebuSocketCore {
 			var host = uri.Host;
 			var scheme = uri.Scheme;
 			var port = uri.Port;
+			var path = uri.LocalPath;
 			
 			// check if dns or ip.
 			var isDns = (uri.HostNameType == UriHostNameType.Dns);
@@ -176,14 +191,17 @@ namespace WebuSocketCore {
 			*/
 			var requestData = new StringBuilder();
 			{
-				requestData.AppendFormat("GET {0} HTTP/1.1{1}", url, CRLF);
+				requestData.AppendFormat("GET {0} HTTP/1.1{1}", path, CRLF);
 				foreach (var key in requestHeaderParams.Keys) requestData.AppendFormat("{0}: {1}{2}", key, requestHeaderParams[key], CRLF);
 				requestData.Append(CRLF);
 			}
 
 			this.websocketHandshakeRequestBytes = Encoding.UTF8.GetBytes(requestData.ToString());
-			
+
 			if (isDns) {
+				// initialize socketToken with empty state.
+				this.socketToken = new SocketToken();
+
 				Dns.BeginGetHostEntry(
 					host, 
 					new AsyncCallback(
@@ -620,7 +638,7 @@ namespace WebuSocketCore {
 			if (!token.socket.ReceiveAsync(token.receiveArgs)) OnReceived(token.socket, token.receiveArgs);
 		}
 		
-		public void Disconnect (bool force=false, WebuSocketCloseEnum closeReason=WebuSocketCloseEnum.CLOSED_FORCELY) {
+		public void Disconnect (bool force=false, WebuSocketCloseEnum closeReason=WebuSocketCloseEnum.CLOSED_FORCIBLY) {
 			lock (lockObj) {
 				switch (socketToken.socketState) {
 					case SocketState.CLOSING:
@@ -641,7 +659,7 @@ namespace WebuSocketCore {
 						}
 
 						socketToken.socketState = SocketState.CLOSING;
-						if (closeReason != WebuSocketCloseEnum.CLOSED_FORCELY) socketToken.closeReason = closeReason;
+						if (closeReason != WebuSocketCloseEnum.CLOSED_FORCIBLY) socketToken.closeReason = closeReason;
 						StartCloseAsync();
 						break;
 					}
@@ -1146,29 +1164,15 @@ namespace WebuSocketCore {
 			}
 		}
 
-		private bool IsConnectionOpened () {
+		private bool IsStateOpened () {
 			if (socketToken.socketState != SocketState.OPENED) return false;
 			return true;
 		}
 
-		/**
-			After connection opened,
-			you can call this method on a regular basis for detect timeout/disconnect.
-			
-			this method calls Ping API internally for detecting send-timeout.
-			
-			If the timeout is detected, WebSocket will be closed asynchronously.
-			and WebuSocketCloseEnum is "CLOSED_BY_TIMEOUT" at that time. 
-
-			you can check if the connection is closed by timeout or not by checking the WebuSocketCloseEnum on "OnClosed" handler.
-
-
-			If the connection is not yet opened, this method does nothing. 
-			only return false.
-		*/
+		
 		public bool IsConnected () {
 			// state check.
-			if (!IsConnectionOpened()) return false;
+			if (!IsStateOpened()) return false;
 
 			/*
 				create coroutine for holding timeout checker.
@@ -1179,18 +1183,19 @@ namespace WebuSocketCore {
 			
 			// update coroutine.
 			timeoutCheckCoroutine.MoveNext();
-			var isConnected = timeoutCheckCoroutine.Current;
+			var isInTimelimit = timeoutCheckCoroutine.Current;
 			
-			if (!isConnected) {
+			if (!isInTimelimit) {
 				Disconnect(false, WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
 			}
 
-			return isConnected;
+			return isInTimelimit;
 		}
-
+		
 		private IEnumerator<bool> timeoutCheckCoroutine;
 		private IEnumerator<bool> GenerateTimeoutCheckCoroutine () {
 			var waitingPong = true;
+			var limitSec = DateTime.UtcNow.Second + timeoutSec;
 
 			Ping(
 				() => {
@@ -1206,12 +1211,19 @@ namespace WebuSocketCore {
 				/*
 					if state is not OPENED, this connection is already disconnected.
 				*/
-				var isConnectedSync = IsConnectionOpened();
+				var isConnectedSync = IsStateOpened();
 				if (!isConnectedSync) {
 					yield return false;
 					break;
 				}
 
+				/*
+					continue if current sec does not reached to timelimit. 
+				*/
+				if (DateTime.UtcNow.Second < limitSec) {
+					yield return true;
+				}
+				
 				/*
 					if pong is not returned yet, this is timeout.
 					this connection is already disconnected.
@@ -1222,9 +1234,10 @@ namespace WebuSocketCore {
 				}
 				
 				/*
-					set next ping for detecting timeout.
+					set next ping and timeout limit.
 				*/
 				waitingPong = true;
+				limitSec = DateTime.UtcNow.Second + timeoutSec;
 				Ping(
 					() => {
 						waitingPong = false;
@@ -1234,7 +1247,6 @@ namespace WebuSocketCore {
 				yield return true;
 			}
 		}
-
 
 		private void CloseReceived () {
 			lock (lockObj) {
