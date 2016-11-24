@@ -29,6 +29,7 @@ namespace WebuSocketCore {
 		CONNECTION_FAILED,
 		TLS_HANDSHAKE_FAILED,
 		TLS_ERROR,
+		WS_HANDSHAKE_FAILED,
 		WS_HANDSHAKE_KEY_UNMATCHED,
 		SEND_FAILED,
 		PING_FAILED,
@@ -524,14 +525,35 @@ namespace WebuSocketCore {
 					if (0 < webSocketHandshakeResult.Length) {
 						var lineEndCursor = ReadUpgradeLine(webSocketHandshakeResult, 0, webSocketHandshakeResult.Length);
 						if (lineEndCursor != -1) {
-							var protocolData = new SwitchingProtocolData(Encoding.UTF8.GetString(webSocketHandshakeResult, 0, lineEndCursor));
-							var expectedKey = WebSocketByteGenerator.GenerateExpectedAcceptedKey(base64Key);
-							if (protocolData.securityAccept != expectedKey) {
-								if (OnError != null) {
-									var error =  new Exception("WebSocket Key Unmatched.");
-									OnError(WebuSocketErrorEnum.WS_HANDSHAKE_KEY_UNMATCHED, error);
+							try {
+								var protocolData = new SwitchingProtocolData(Encoding.UTF8.GetString(webSocketHandshakeResult, 0, lineEndCursor));
+								var expectedKey = WebSocketByteGenerator.GenerateExpectedAcceptedKey(base64Key);
+								if (protocolData.securityAccept != expectedKey) {
+									if (OnError != null) {
+										var error =  new Exception("WebSocket Key Unmatched.");
+										OnError(WebuSocketErrorEnum.WS_HANDSHAKE_KEY_UNMATCHED, error);
+									}
+									Disconnect();
+									return;
 								}
+							} catch (Exception e) {
+								if (OnError != null) {
+									OnError(WebuSocketErrorEnum.WS_HANDSHAKE_FAILED, e);
+								}
+								Disconnect();
+								return;
 							}
+
+							token.socketState = SocketState.OPENED;
+							if (OnConnected != null) OnConnected();
+							
+							wsBuffer = new byte[baseReceiveBufferSize];
+							wsBufIndex = 0;
+
+							// ready for receiving websocket data.
+							ReadyReceivingNewData(token);
+							return;
+						} else {
 							token.socketState = SocketState.OPENED;
 							if (OnConnected != null) OnConnected();
 							
@@ -731,24 +753,24 @@ namespace WebuSocketCore {
 					
 					var keyAndValue = line.Replace(": ", ":").Split(':');
 					
-					switch (keyAndValue[0]) {
-						case "Server": {
+					switch (keyAndValue[0].ToLower()) {
+						case "server": {
 							this.serverInfo = keyAndValue[1];
 							break;
 						}
-						case "Date": {
+						case "date": {
 							this.date = keyAndValue[1];
 							break;
 						}
-						case "Connection": {
+						case "connection": {
 							this.connectionType = keyAndValue[1];
 							break;
 						}
-						case "Upgrade": {
+						case "upgrade": {
 							this.upgradeMethod = keyAndValue[1];
 							break;
 						}
-						case "Sec-WebSocket-Accept": {
+						case "sec-websocket-accept": {
 							this.securityAccept = keyAndValue[1].TrimEnd();
 							break;
 						}
