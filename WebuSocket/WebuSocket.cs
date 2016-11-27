@@ -1244,6 +1244,7 @@ namespace WebuSocketCore {
 				*/
 				if (DateTime.UtcNow.Second < limitSec) {
 					yield return true;
+					continue;
 				}
 				
 				/*

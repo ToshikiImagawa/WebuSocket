@@ -1,7 +1,7 @@
 #WebuSocket
 
 WebSocket Client implementation for C#.  
-ver 0.7.1
+ver 0.7.2
 
 ##motivation
 
@@ -53,7 +53,7 @@ sample unity project is here
 * connect by domain
 * tls
 * reconnection
-* disconnect detection(timeout)
+* disconnect detection by ping-pong timeout
 
 ##not yet implemented
 * redirection(necessary?)
