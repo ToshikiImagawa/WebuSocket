@@ -10,6 +10,7 @@ namespace WebuSocketCore {
 		EMPTY,
 		CONNECTING,
 		TLS_HANDSHAKING,
+		TLS_HANDSHAKE_DONE,
 		WS_HANDSHAKING,
 		OPENED,
 		CLOSING,
@@ -248,7 +249,7 @@ namespace WebuSocketCore {
 		private void TLSHandshakeDone () {
 			switch (socketToken.socketState) {
 				case SocketState.TLS_HANDSHAKING: {
-					SendWSHandshake(socketToken);
+					socketToken.socketState = SocketState.TLS_HANDSHAKE_DONE;
 					break;
 				}
 				default: {
@@ -412,6 +413,11 @@ namespace WebuSocketCore {
 		}
 
 		private object lockObj = new object();
+		
+
+		/*
+			buffers.
+		*/
 		private byte[] wsBuffer;
 		private int wsBufIndex;
 		private int wsBufLength;
@@ -456,11 +462,11 @@ namespace WebuSocketCore {
 					// tls handshake phase will progress.
 					tlsClientProtocol.OfferInputBytes(args.Buffer, args.BytesTransferred);
 
-					// state is changed if tls handshake is done inside tlsClientProtocol.
-					// do nothing.
-					if (token.socketState != SocketState.TLS_HANDSHAKING) {
+					// state is changed to TLS_HANDSHAKE_DONE if tls handshake is done inside tlsClientProtocol.
+					if (token.socketState == SocketState.TLS_HANDSHAKE_DONE) {
+						SendWSHandshake(token);
 						return;
-					} 
+					}
 
 					/*
 						continue handshaking.
@@ -487,7 +493,6 @@ namespace WebuSocketCore {
 					return;
 				}
 				case SocketState.WS_HANDSHAKING: {
-					 
 					var receivedData = new byte[args.BytesTransferred];
 					Buffer.BlockCopy(args.Buffer, 0, receivedData, 0, receivedData.Length);
 					
@@ -500,7 +505,7 @@ namespace WebuSocketCore {
 								webSocketHandshakeResult = new byte[length];
 							} else {
 								index = webSocketHandshakeResult.Length;
-								// already hold bytes, and should expand for holding more decrypted data.
+								// already hold some bytes, and should expand for holding more decrypted data.
 								Array.Resize(ref webSocketHandshakeResult, webSocketHandshakeResult.Length + length);
 							}
 
@@ -516,7 +521,7 @@ namespace WebuSocketCore {
 							webSocketHandshakeResult = new byte[args.BytesTransferred];
 						} else {
 							index = webSocketHandshakeResult.Length;
-							// already hold bytes, and should expand for holding more decrypted data.
+							// already hold some bytes, and should expand for holding more decrypted data.
 							Array.Resize(ref webSocketHandshakeResult, webSocketHandshakeResult.Length + length);
 						}
 						Buffer.BlockCopy(args.Buffer, 0, webSocketHandshakeResult, index, length);
@@ -543,25 +548,40 @@ namespace WebuSocketCore {
 								Disconnect();
 								return;
 							}
-
+							
 							token.socketState = SocketState.OPENED;
 							if (OnConnected != null) OnConnected();
-							
+
+
+							var afterHandshakeDataIndex = lineEndCursor + 1;// after last crlf.
+
+
+							/*
+								ready buffer data.
+							*/
 							wsBuffer = new byte[baseReceiveBufferSize];
 							wsBufIndex = 0;
 
-							// ready for receiving websocket data.
-							ReadyReceivingNewData(token);
-							return;
-						} else {
-							token.socketState = SocketState.OPENED;
-							if (OnConnected != null) OnConnected();
-							
-							wsBuffer = new byte[baseReceiveBufferSize];
-							wsBufIndex = 0;
 
-							// ready for receiving websocket data.
-							ReadyReceivingNewData(token);
+							/*
+								if end cursor of handshake is not equal to holded data length, received data is already contained.
+							*/
+							if (webSocketHandshakeResult.Length == afterHandshakeDataIndex) {
+								// no extra data exists.
+								
+								// ready for receiving websocket data.
+								ReadyReceivingNewData(token);
+							} else {
+								wsBufLength = webSocketHandshakeResult.Length - afterHandshakeDataIndex;
+								
+								if (wsBuffer.Length < wsBufLength) {
+									Array.Resize(ref wsBuffer, wsBufLength);
+								}
+								
+								Buffer.BlockCopy(webSocketHandshakeResult, afterHandshakeDataIndex, wsBuffer, 0, wsBufLength);
+								
+								ReadBuffer(token);
+							}
 							return;
 						}
 					}
@@ -604,46 +624,7 @@ namespace WebuSocketCore {
 						wsBufLength = wsBufLength + additionalLen;
 					}
 
-					var result = ScanBuffer(wsBuffer, wsBufLength);
-					
-					// read completed datas.
-					if (0 < result.segments.Count) {
-						OnMessage(result.segments);
-					}
-					
-					// if the last result index is matched to whole length, receive finished.
-					if (result.lastDataTail == wsBufLength) {
-						wsBufIndex = 0;
-						wsBufLength = 0;
-						ReadyReceivingNewData(token);
-						return;
-					}
-
-					// unreadable data still exists in wsBuffer.
-					var unreadDataLength = wsBufLength - result.lastDataTail;
-
-					if (result.lastDataTail == 0) {
-						// no data is read as WS data. 
-						// this means the all data in wsBuffer is not enough to read as WS data yet.
-						// need more data to add the last of wsBuffer.
-
-						// set wsBufferIndex and wsBufLength to the end of current buffer.
-						wsBufIndex = unreadDataLength;
-						wsBufLength = unreadDataLength;
-					} else {
-						// not all of wsBuffer data is read as WS data.
-						// data which is located before alreadyReadDataTail is already read.
-						
-						// move rest "unreaded" data to head of wsBuffer.
-						Array.Copy(wsBuffer, result.lastDataTail, wsBuffer, 0, unreadDataLength);
-
-						// then set wsBufIndex to 
-						wsBufIndex = unreadDataLength;
-						wsBufLength = unreadDataLength;
-					}
-
-					// should read rest.
-					ReadyReceivingNewData(token);
+					ReadBuffer(token);
 					return;
 				}
 				default: {
@@ -654,7 +635,54 @@ namespace WebuSocketCore {
 				}
 			}
 		}
+
+		/**
+			consume buffered data.
+		*/
+		private void ReadBuffer (SocketToken token) {
+			var result = ScanBuffer(wsBuffer, wsBufLength);
+
+			// read completed datas.
+			if (0 < result.segments.Count) {
+				OnMessage(result.segments);
+			}
+			
+			// if the last result index is matched to whole length, receive finished.
+			if (result.lastDataTail == wsBufLength) {
+				wsBufIndex = 0;
+				wsBufLength = 0;
+				ReadyReceivingNewData(token);
+				return;
+			}
+
+			// unreadable data still exists in wsBuffer.
+			var unreadDataLength = wsBufLength - result.lastDataTail;
+
+			if (result.lastDataTail == 0) {
+				// no data is read as WS data. 
+				// this means the all data in wsBuffer is not enough to read as WS data yet.
+				// need more data to add the last of wsBuffer.
+
+				// set wsBufferIndex and wsBufLength to the end of current buffer.
+				wsBufIndex = unreadDataLength;
+				wsBufLength = unreadDataLength;
+			} else {
+				// not all of wsBuffer data is read as WS data.
+				// data which is located before alreadyReadDataTail is already read.
+				
+				// move rest "unreaded" data to head of wsBuffer.
+				Array.Copy(wsBuffer, result.lastDataTail, wsBuffer, 0, unreadDataLength);
+
+				// then set wsBufIndex to 
+				wsBufIndex = unreadDataLength;
+				wsBufLength = unreadDataLength;
+			}
+
+			// should read rest.
+			ReadyReceivingNewData(token);
+		}
 		
+
 		private void ReadyReceivingNewData (SocketToken token) {
 			token.receiveArgs.SetBuffer(token.receiveBuffer, 0, token.receiveBuffer.Length);
 			if (!token.socket.ReceiveAsync(token.receiveArgs)) OnReceived(token.socket, token.receiveArgs);
@@ -712,7 +740,7 @@ namespace WebuSocketCore {
 					bytes[cursor - 2] == ByteLF &&
 					bytes[cursor - 1] == ByteCR && 
 					bytes[cursor] == ByteLF
-				) return cursor - 1;
+				) return cursor;// end point of linefeed.
 				
 				cursor++;
 			}
