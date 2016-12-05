@@ -1,7 +1,7 @@
 using System;
-using Org.BouncyCastle.Crypto.Tls;
-using Org.BouncyCastle.Security;
-using Org.BouncyCastle.Utilities;
+using WebuSocketEncryption.Org.BouncyCastle.Crypto.Tls;
+using WebuSocketEncryption.Org.BouncyCastle.Security;
+using WebuSocketEncryption.Org.BouncyCastle.Utilities;
 
 namespace WebuSocketCore.Encryption {
 	public class WebuSocketTlsClientProtocol : TlsClientProtocol {
