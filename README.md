@@ -63,5 +63,6 @@ sample unity project is here
 contribute welcome!
 
 ##license
-MIT.
+see below.
+[LICENSE](./LICENSE)
 
