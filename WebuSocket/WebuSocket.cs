@@ -165,6 +165,18 @@ namespace WebuSocketCore {
 			var scheme = uri.Scheme;
 			var port = uri.Port;
 			var path = uri.LocalPath;
+			var userInfo = uri.UserInfo;
+
+			/*
+				set default port.
+			*/
+			if (port == -1) {
+				if (scheme == "wss") {
+					port = 443;
+				} else {
+					port = 80;
+				}
+			}
 			
 			// check if dns or ip.
 			var isDns = (uri.HostNameType == UriHostNameType.Dns);
@@ -183,6 +195,13 @@ namespace WebuSocketCore {
 				{"Sec-WebSocket-Key", base64Key},
 				{"Sec-WebSocket-Version", WEBSOCKET_VERSION}
 			};
+
+			/*
+				basic auth.
+			*/
+			if (!string.IsNullOrEmpty(userInfo)) {
+				requestHeaderParams["Authorization"] = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes(userInfo));
+			}
 
 			if (additionalHeaderParams != null) { 
 				foreach (var key in additionalHeaderParams.Keys) requestHeaderParams[key] = additionalHeaderParams[key];
