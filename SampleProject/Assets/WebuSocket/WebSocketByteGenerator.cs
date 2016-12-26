@@ -33,12 +33,14 @@ namespace WebuSocketCore {
 		
 		public const byte OPFilter			= 0xF;// 1111
 		
-		public static byte[] Ping () {
-			return WSDataFrame(1, 0, 0, 0, OP_PING, 1, new byte[0]);
+		public static byte[] Ping (byte[] data=null) {
+			if (data == null) data = new byte[0];
+			return WSDataFrame(1, 0, 0, 0, OP_PING, 1, data);
 		}
 		
-		public static byte[] Pong () {
-			return WSDataFrame(1, 0, 0, 0, OP_PONG, 1, new byte[0]);
+		public static byte[] Pong (byte[] data=null) {
+			if (data == null) data = new byte[0];
+			return WSDataFrame(1, 0, 0, 0, OP_PONG, 1, data);
 		}
 		
 		public static byte[] SendTextData (byte[] data) {
@@ -51,7 +53,6 @@ namespace WebuSocketCore {
 		public static byte[] CloseData () {
 			return WSDataFrame(1, 0, 0, 0, OP_CLOSE, 1, new byte[0]);
 		}
-		
 		
 		private static byte[] WSDataFrame (
 			byte fin,

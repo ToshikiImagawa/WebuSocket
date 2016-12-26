@@ -21,7 +21,7 @@ namespace WebuSocketCore {
 		CLOSED_FORCIBLY,
 		CLOSED_GRACEFULLY,
 		CLOSED_BY_SERVER,
-		CLOSED_BY_TIMEOUT
+		CLOSED_BY_TIMEOUT,
 	}
 
 	public enum WebuSocketErrorEnum {
@@ -60,8 +60,6 @@ namespace WebuSocketCore {
 		}
 
 		private EndPoint endPoint;
-		
-		private readonly int timeoutSec;
 		
 		private const string CRLF = "\r\n";
 		private const string WEBSOCKET_VERSION = "13";
@@ -139,8 +137,7 @@ namespace WebuSocketCore {
 			Action OnPinged=null,
 			Action<WebuSocketCloseEnum> OnClosed=null,
 			Action<WebuSocketErrorEnum, Exception> OnError=null,
-			Dictionary<string, string> additionalHeaderParams=null,
-			int timeoutSec=DEFAULT_TIMEOUT_SEC
+			Dictionary<string, string> additionalHeaderParams=null
 		) {
 			this.webSocketConnectionId = Guid.NewGuid().ToString();
 			
@@ -155,8 +152,6 @@ namespace WebuSocketCore {
 
 			this.additionalHeaderParams = additionalHeaderParams;
 			
-			this.timeoutSec = timeoutSec;
-
 			this.base64Key = WebSocketByteGenerator.GeneratePrivateBase64Key();
 			
 			var uri = new Uri(url);
@@ -919,11 +914,29 @@ namespace WebuSocketCore {
 						break;
 					}
 					case WebSocketByteGenerator.OP_PING: {
-						PingReceived();
+						/*
+							if server sent ping data with application data, open it.
+						*/
+						if (0 < length) {
+							var data = new byte[length];
+							Buffer.BlockCopy(buffer, cursor, data, 0, length);
+							PingReceived(data);
+						} else {
+							PingReceived();
+						}
 						break;
 					}
 					case WebSocketByteGenerator.OP_PONG: {
-						PongReceived();
+						/*
+							if server sent pong with application data, open it.
+						*/
+						if (0 < length) {
+							var data = new byte[length];
+							Buffer.BlockCopy(buffer, cursor, data, 0, length);
+							PongReceived(data);
+						} else {
+							PongReceived();
+						}
 						break;
 					}
 					default: {
@@ -950,9 +963,26 @@ namespace WebuSocketCore {
 				this.lastDataTail = lastDataTail;
 			}
 		}
-		
-		private Action OnPonged;
-		public void Ping (Action OnPonged) {
+		private byte[] sendingPingData;
+		private byte[] ignoringPingData = new byte[0];
+		private Action _OnPonged;
+		public void Ping (Action<int> onPonged, byte[] data=null) {
+			if (timeoutCheckCoroutine != null) {
+				// すでに動いていたら、現在動いているping sendedの返答が帰ってくるのを待っている。
+				// これをignoreする必要がある。
+				// timeoutCheckCoroutineの初期化とpingがセットになっているので、現状sendingPingDataは必ずnullではない。
+				// IsConnectedを実行するのが先か、Pingを実行するのが先か、という感じになる。
+				ignoringPingData = sendingPingData;
+			}
+
+			// force renew timeout-check-coroutine.
+			timeoutCheckCoroutine = GenerateTimeoutCheckCoroutine(data, onPonged);
+
+			// update coroutine. first time = send ping data to server.
+			UpdateTimeoutCoroutine();
+		}
+
+		private void _Ping (Action _onPonged, byte[] data=null) {
 			if (socketToken.socketState != SocketState.OPENED) {
 				WebuSocketErrorEnum ev = WebuSocketErrorEnum.UNKNOWN_ERROR;
 				Exception error = null;
@@ -979,8 +1009,11 @@ namespace WebuSocketCore {
 				return;
 			}
 
-			this.OnPonged = OnPonged;
-			var pingBytes = WebSocketByteGenerator.Ping();
+			/*
+				update onPong handler. this handler will be fired at most once.
+			*/
+			this._OnPonged = _onPonged;
+			var pingBytes = WebSocketByteGenerator.Ping(data);
 			
 			if (isWss) {
 				tlsClientProtocol.OfferOutput(pingBytes, 0, pingBytes.Length);
@@ -1237,19 +1270,46 @@ namespace WebuSocketCore {
 			if (socketToken.socketState != SocketState.OPENED) return false;
 			return true;
 		}
-
 		
-		public bool IsConnected () {
+		/**
+			CAUTION: this feature expects that Ping with application data will be returned by server as Pong with same application data.
+			by https://tools.ietf.org/html/rfc6455#section-5.5.2
+
+			this method is for checking websocket connectivity with timeout sec setting.
+			it is good that call this method very constantly. because this check method is very lightweight.
+
+			if you set a timeout of 2 second and call this method every 3 seconds, you can detect the timeout in 3 seconds.
+			also if you set a timeout of X second and call this method every Y seconds, you can detect the timeout in Y seconds.
+
+			this method calls Ping internally but interval of Ping is always larger than timeout sec.
+
+			return true if waiting ping in timeout sec.
+			return true if ping is returned in timeout sec.
+			return true and send new ping if timeout sec passed.
+			else, return false.
+		*/
+		private byte pingCount;
+		public bool IsConnected (int newTimeoutSec=DEFAULT_TIMEOUT_SEC) {
+			if (newTimeoutSec <= 0) return IsStateOpened();
+
 			// state check.
 			if (!IsStateOpened()) return false;
-
+			
+			// set new timeout.
+			this.timeoutSec = newTimeoutSec;
+			
 			/*
-				create coroutine for holding timeout checker.
+				create coroutine for holding timeout checker if this method called faster than Ping.
 			*/
 			if (timeoutCheckCoroutine == null) {
-				timeoutCheckCoroutine = GenerateTimeoutCheckCoroutine();
+				var data = new byte[]{pingCount};
+				timeoutCheckCoroutine = GenerateTimeoutCheckCoroutine(data, _ => {});
 			}
-			
+
+			return UpdateTimeoutCoroutine();
+		}
+
+		private bool UpdateTimeoutCoroutine () {
 			// update coroutine.
 			timeoutCheckCoroutine.MoveNext();
 			var isInTimelimit = timeoutCheckCoroutine.Current;
@@ -1260,22 +1320,56 @@ namespace WebuSocketCore {
 
 			return isInTimelimit;
 		}
-		
-		private IEnumerator<bool> timeoutCheckCoroutine;
-		private IEnumerator<bool> GenerateTimeoutCheckCoroutine () {
-			var waitingPong = true;
-			var limitSec = DateTime.UtcNow.Second + timeoutSec;
+		private int timeoutSec;
+		private int rttMilliSec;
 
-			Ping(
+		public int RttMilliseconds {
+			get {
+				return rttMilliSec;
+			}
+		}
+
+		private IEnumerator<bool> timeoutCheckCoroutine;
+
+		/**
+			このメソッドは2つのルートで使われている。
+			・IsConnected()で接続性チェックをするため
+			・PingでPingデータを送るため
+
+			ユーザーがPingデータを送付しようとした際、このCoroutineは常に新規作成され、Pingデータを直ちに送付し、その後サーバからPongが帰ってくる。
+			そのままCoroutine自体は生き続ける。
+
+			ユーザーがIsConnectedを実行した際、もしPingを打っていない状態だったら、Pingを送る。
+			以降、このメソッドを実行するたびに、次のことが起きる。
+				実行時、Ping送信から指定時間内だったら、trueを返す。
+				実行時、指定時間外でPongが帰ってきていたら、trueを返しつつ、次のPingを送付する。
+				実行時、指定時間外でまだPongが帰ってきていなかったら、falseを返し、Disconnectを行う。
+
+			もしユーザーがIsConnected -> Pingの順で呼んだ場合、IsConnectedで送付したPingのPongは無視される。
+				(送信済みのidentifyされたbyteが帰ってきても、無視する)
+				Ping実行の際、Coroutineは新規作成されるので、以降のIsConnectedで利用される。
+
+			もしユーザーがPing -> IsConnectedの順で呼んだ場合、PingでCoroutineは新規作成され、Ping中になるため、
+				IsConnectedはtimeoutまでのあいだ常にtrueを返す。
+		*/
+		private IEnumerator<bool> GenerateTimeoutCheckCoroutine (byte[] firstPingData, Action<int> firstOnPong) {
+			var waitingPong = true;
+			var currentDate = DateTime.UtcNow;
+			var limitTick = (TimeSpan.FromTicks(currentDate.Ticks) + TimeSpan.FromSeconds(timeoutSec)).Ticks;
+			sendingPingData = firstPingData;
+			_Ping(
 				() => {
+					this.rttMilliSec = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - currentDate.Ticks).Milliseconds;
 					waitingPong = false;
-				}
+					if (firstOnPong != null) firstOnPong(rttMilliSec);// call only first pong.
+				},
+				firstPingData
 			);
 			
-			// first, return true.
+			// return true at first time.
 			yield return true;
 
-			// second and later.
+			// second and later. called by IsConnected method.
 			while (true) {
 				/*
 					if state is not OPENED, this connection is already disconnected.
@@ -1285,17 +1379,18 @@ namespace WebuSocketCore {
 					yield return false;
 					break;
 				}
-
+				
 				/*
 					continue if current sec does not reached to timelimit. 
 				*/
-				if (DateTime.UtcNow.Second < limitSec) {
+				if (DateTime.UtcNow.Ticks < limitTick) {
 					yield return true;
 					continue;
 				}
-				
+
 				/*
-					if pong is not returned yet, this is timeout.
+					if pong is not returned yet, that is timeout.
+					(this method call is at least exceed the timeout.)
 					this connection is already disconnected.
 				*/
 				if (waitingPong) {
@@ -1304,17 +1399,32 @@ namespace WebuSocketCore {
 				}
 				
 				/*
-					set next ping and timeout limit.
+					send next ping and timeout after timelimit.
 				*/
 				waitingPong = true;
-				limitSec = DateTime.UtcNow.Second + timeoutSec;
-				Ping(
+				currentDate = DateTime.UtcNow;
+				limitTick = (TimeSpan.FromTicks(currentDate.Ticks) + TimeSpan.FromSeconds(timeoutSec)).Ticks;
+
+				/*
+					set new ping data.
+					data is 1 ~ byte.MaxValue.
+				*/
+				var data = new byte[]{++pingCount};
+				if (byte.MaxValue == pingCount) {
+					pingCount = 0;
+				}
+
+				sendingPingData = data;
+				_Ping(
 					() => {
+						this.rttMilliSec = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - currentDate.Ticks).Milliseconds;
 						waitingPong = false;
-					}
+					},
+					data
 				);
 
 				yield return true;
+				continue;
 			}
 		}
 
@@ -1335,10 +1445,8 @@ namespace WebuSocketCore {
 			}
 		}
 		
-		private void PingReceived () {
-			if (OnPinged != null) OnPinged();
-			
-			var pongBytes = WebSocketByteGenerator.Pong();
+		private void PingReceived (byte[] data=null) {
+			var pongBytes = WebSocketByteGenerator.Pong(data);
 
 			if (isWss) {
 				tlsClientProtocol.OfferOutput(pongBytes, 0, pongBytes.Length);
@@ -1401,13 +1509,34 @@ namespace WebuSocketCore {
 					}
 					Disconnect();
 				}
-			}	
+			}
+
+			if (OnPinged != null) OnPinged();	
 		}
 		
-		private void PongReceived () {
-			if (OnPonged != null) {
-				OnPonged();
-				OnPonged = null;
+		private void PongReceived (byte[] data=null) {
+			if (data != null && ignoringPingData.Length == data.Length) {
+				// check if data is perfectly same.
+				for (var i = 0; i < ignoringPingData.Length; i++) {
+					/*
+						data not matched. call pong once.
+					*/
+					if (ignoringPingData[i] != data[i]) {
+						if (_OnPonged != null) {
+							_OnPonged();
+							_OnPonged = null;
+						}
+						return;
+					}
+				}
+			}
+
+			/*
+				call pong once.
+			*/		
+			if (_OnPonged != null) {
+				_OnPonged();
+				_OnPonged = null;
 			}
 		}
 	}

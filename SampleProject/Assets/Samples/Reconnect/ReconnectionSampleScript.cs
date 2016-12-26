@@ -24,7 +24,7 @@ public class ReconnectionSampleScript : MonoBehaviour {
 				opened = true;
 			},
 			datas => {},
-			() => { },
+			() => {},
 			closeReason => {
 				Debug.Log("closed, closeReason:" + closeReason);
 				switch (closeReason) {
@@ -50,6 +50,7 @@ public class ReconnectionSampleScript : MonoBehaviour {
 			if (frame == 120) {
 				opened = false;
 				frame = 0;
+				// set timeout for sample.
 				webSocket.Disconnect(true, WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
 			}
 			frame++;

@@ -57,7 +57,7 @@ public class ConnectionSampleScript : MonoBehaviour {
 				}
 			},
 			() => {
-				Debug.Log("received server ping. automatically pong.");
+				Debug.Log("received server ping. automatically ponged.");
 			},
 			closeReason => {
 				Debug.Log("closed, closeReason:" + closeReason);
@@ -67,23 +67,8 @@ public class ConnectionSampleScript : MonoBehaviour {
 			},
 			new Dictionary<string, string>{
 				// set WebSocket connection header parameters here!
-			},
-			timeoutSec:10
-		);
-	}
-
-	int frame = 0;
-	void Update () {
-		frame++;
-
-		// interval basis check for connection status.
-		// check connection / 1 sec.
-		if (opened && frame % (60 * 1) == 0) {
-			if (!webSocket.IsConnected()) {
-				Debug.LogError("disconnection detected. frame:" + frame);
-				opened = false;
 			}
-		}
+		);
 	}
 
 	void OnApplicationQuit () {

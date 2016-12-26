@@ -18,31 +18,28 @@ public class TimeoutSampleScript : MonoBehaviour {
 			"wss://echo.websocket.org:443/",
 			1024,
 			() => {
-				Debug.Log("connection succeeded.");
+				Debug.Log("connect succeeded.");
 				opened = true;
 			},
 			datas => {},
-			() => { },
+			() => {},
 			closeReason => {
 				Debug.Log("closed, closeReason:" + closeReason);
 			},
-
-			/*
-				timeout parameter.
-				-1 is not good. only for sample.
-
-				I think you may set large number than 0.
-			*/
-			timeoutSec:-1
+			(error, ex) => {
+				Debug.LogError("error:" + error + " ex:" + ex);
+			}
 		);
 	}
 
 	void Update () {
 		/*
-			IsConnected() method can detect timeout of connection.
-			You can call this method by calling it at appropriate intervals.
+			IsConnected(newTimeoutSec) method can detect timeout of websocket connection.
+			You can call this method at your appropriate intervals for connectivity checking.
+
+			default timeout sec is 10.
 		*/
-		if (opened && !webSocket.IsConnected()) {
+		if (opened && !webSocket.IsConnected(5)) {
 			Debug.LogError("timeout detected.");
 			opened = false;
 		} 
