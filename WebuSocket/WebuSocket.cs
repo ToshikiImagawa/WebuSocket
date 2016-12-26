@@ -964,7 +964,7 @@ namespace WebuSocketCore {
 			}
 		}
 		private byte[] sendingPingData;
-		private byte[] ignoringPingData;
+		private byte[] ignoringPingData = new byte[0];
 		private Action _OnPonged;
 		public void Ping (Action<int> onPonged, byte[] data=null) {
 			if (timeoutCheckCoroutine != null) {
