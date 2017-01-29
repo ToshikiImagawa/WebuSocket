@@ -51,13 +51,13 @@ public class ReconnectionSampleScript : MonoBehaviour {
 				opened = false;
 				frame = 0;
 				// set timeout for sample.
-				webSocket.Disconnect(true, WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
+				webSocket.Disconnect(WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
 			}
 			frame++;
 		}
 	}
 
 	void OnApplicationQuit() {
-		webSocket.Disconnect(true);
+		webSocket.Disconnect();
 	}
 }

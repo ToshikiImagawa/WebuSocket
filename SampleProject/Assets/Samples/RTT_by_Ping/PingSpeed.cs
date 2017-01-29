@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections;
 using WebuSocketCore;
+using System.Collections.Generic;
 
 public class PingSpeed : MonoBehaviour {
 	private WebuSocket webSocket;
@@ -27,6 +28,6 @@ public class PingSpeed : MonoBehaviour {
 	}
 
 	void OnApplicationQuit() {
-		webSocket.Disconnect(true);
+		webSocket.Disconnect();
 	}
 }

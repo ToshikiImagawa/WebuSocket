@@ -72,6 +72,6 @@ public class ConnectionSampleScript : MonoBehaviour {
 	}
 
 	void OnApplicationQuit () {
-		webSocket.Disconnect(true);
+		webSocket.Disconnect();
 	}
 }

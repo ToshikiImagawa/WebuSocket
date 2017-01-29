@@ -644,7 +644,7 @@ namespace WebuSocketCore {
 				default: {
 					var error = new Exception("fatal error, could not detect error, receive condition is strange, token.socketState:" + token.socketState);
 					if (OnError != null) OnError(WebuSocketErrorEnum.RECEIVE_FAILED, error);
-					Disconnect(true); 
+					Disconnect(); 
 					return;
 				}
 			}
@@ -702,7 +702,7 @@ namespace WebuSocketCore {
 			if (!token.socket.ReceiveAsync(token.receiveArgs)) OnReceived(token.socket, token.receiveArgs);
 		}
 		
-		public void Disconnect (bool force=false, WebuSocketCloseEnum closeReason=WebuSocketCloseEnum.CLOSED_FORCIBLY) {
+		public void Disconnect (WebuSocketCloseEnum closeReason=WebuSocketCloseEnum.CLOSED_FORCIBLY) {
 			lock (lockObj) {
 				switch (socketToken.socketState) {
 					case SocketState.CLOSING:
@@ -711,17 +711,6 @@ namespace WebuSocketCore {
 						break;
 					}
 					default: {
-						if (force) {
-							try {
-								socketToken.socket.Close();
-							} catch {
-								// do nothing.
-							}
-							socketToken.socketState = SocketState.CLOSED;
-							if (OnClosed != null) OnClosed(closeReason);
-							return;
-						}
-
 						socketToken.socketState = SocketState.CLOSING;
 						if (closeReason != WebuSocketCloseEnum.CLOSED_FORCIBLY) socketToken.closeReason = closeReason;
 						StartCloseAsync();
@@ -737,7 +726,18 @@ namespace WebuSocketCore {
 			closeEventArgs.AcceptSocket = socketToken.socket;
 
 			var closeData = WebSocketByteGenerator.CloseData();
-			closeEventArgs.SetBuffer(closeData, 0, closeData.Length);
+
+			if (isWss) {
+				tlsClientProtocol.OfferOutput(closeData, 0, closeData.Length);
+				
+				var count = tlsClientProtocol.GetAvailableOutputBytes();
+				var buffer = new byte[count];
+				tlsClientProtocol.ReadOutput(buffer, 0, buffer.Length);
+				
+				closeEventArgs.SetBuffer(buffer, 0, buffer.Length);
+			} else {
+				closeEventArgs.SetBuffer(closeData, 0, closeData.Length);
+			}
 
 			closeEventArgs.Completed += new EventHandler<SocketAsyncEventArgs>(OnDisconnected);
 			
@@ -1315,7 +1315,7 @@ namespace WebuSocketCore {
 			var isInTimelimit = timeoutCheckCoroutine.Current;
 			
 			if (!isInTimelimit) {
-				Disconnect(false, WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
+				Disconnect(WebuSocketCloseEnum.CLOSED_BY_TIMEOUT);
 			}
 
 			return isInTimelimit;

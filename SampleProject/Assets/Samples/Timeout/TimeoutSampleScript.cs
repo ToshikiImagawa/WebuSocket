@@ -31,7 +31,7 @@ public class TimeoutSampleScript : MonoBehaviour {
 			}
 		);
 	}
-
+	
 	void Update () {
 		/*
 			IsConnected(newTimeoutSec) method can detect timeout of websocket connection.
@@ -46,6 +46,6 @@ public class TimeoutSampleScript : MonoBehaviour {
 	}
 
 	void OnApplicationQuit() {
-		webSocket.Disconnect(true);
+		webSocket.Disconnect();
 	}
 }
