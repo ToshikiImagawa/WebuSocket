@@ -252,8 +252,10 @@ namespace WebuSocketCore {
 								 }
 							}
 
-							var unresolvedAddressFamilyException = new Exception("failed to get valid address family from list.");
-							OnError(WebuSocketErrorEnum.DOMAIN_UNRESOLVED, unresolvedAddressFamilyException);
+							if (OnError != null) {
+								var unresolvedAddressFamilyException = new Exception("failed to get valid address family from list.");
+								OnError(WebuSocketErrorEnum.DOMAIN_UNRESOLVED, unresolvedAddressFamilyException);
+							}
 							Disconnect();
 						}
 					),
