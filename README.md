@@ -1,9 +1,9 @@
-#WebuSocket
+# WebuSocket
 
 WebSocket Client implementation for C#.  
 ver 0.7.6
 
-##motivation
+## motivation
 
 * async default.
 * lightweight.
@@ -11,7 +11,7 @@ ver 0.7.6
 * task free.
 * runnable on C# 3.5 or later(includes Unity).
 
-##usage
+## usage
 
 ```C#
 var webuSocket = new WebuSocket(
@@ -47,7 +47,7 @@ var webuSocket = new WebuSocket(
 sample unity project is here  
 [SampleProject](https://github.com/sassembla/WebuSocket/tree/master/SampleProject)
 
-##implemented
+## implemented
 * basic WebSocket API
 * connect by ip
 * connect by domain
@@ -63,7 +63,7 @@ sample unity project is here
 
 **contribution welcome!**
 
-##license
+## license
 see below.  
 [LICENSE](./LICENSE)
 
