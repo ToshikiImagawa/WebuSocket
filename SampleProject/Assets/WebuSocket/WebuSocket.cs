@@ -243,11 +243,18 @@ namespace WebuSocketCore {
 								return;
 							}
 
-							// choose 1st ip.
-							var ip = addresses.AddressList[0];	
-							this.endPoint = new IPEndPoint(ip, port);
+							// choose valid ip.
+							foreach (IPAddress ipaddress in addresses.AddressList){
+								 if (ipaddress.AddressFamily == AddressFamily.InterNetwork) {
+										this.endPoint = new IPEndPoint(ipaddress, port);
+										StartConnectAsync();
+										return;
+								 }
+							}
 
-							StartConnectAsync();
+							var unresolvedAddressFamilyException = new Exception("failed to get valid address family from list.");
+							OnError(WebuSocketErrorEnum.DOMAIN_UNRESOLVED, unresolvedAddressFamilyException);
+							Disconnect();
 						}
 					),
 					this
@@ -255,7 +262,7 @@ namespace WebuSocketCore {
 				return;
 			}
 				
-			// ip.
+			// raw ip.
 			this.endPoint = new IPEndPoint(IPAddress.Parse(host), port);
 			StartConnectAsync();
 		}
