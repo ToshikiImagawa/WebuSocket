@@ -56,7 +56,7 @@ sample unity project is here
 * disconnect detection by ping-pong timeout
 * basic auth
 
-##not yet implemented
+## not yet implemented
 * http redirection(necessary?)
 * tls 1.3
 * else...
