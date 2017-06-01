@@ -17,7 +17,11 @@ public class ConnectionSampleScript : MonoBehaviour {
 	bool opened = false;
 
 	void Start () {
-
+		var q = AppDomain.CurrentDomain.GetAssemblies();
+		foreach (var a in q) {
+			Debug.LogError("a:" + a);
+		}
+		
 		webSocket = new WebuSocket(
 			// url.
 			"wss://echo.websocket.org:443/",
