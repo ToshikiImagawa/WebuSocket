@@ -34,7 +34,5 @@ SampleProject/Library/*
 
 SampleProject/obj/*
 
-SampleProject/ProjectSettings/*
-
 SampleProject/SampleProject.sln
 SampleProject/Temp/*
