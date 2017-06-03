@@ -17,11 +17,6 @@ public class ConnectionSampleScript : MonoBehaviour {
 	bool opened = false;
 
 	void Start () {
-		var q = AppDomain.CurrentDomain.GetAssemblies();
-		foreach (var a in q) {
-			Debug.LogError("a:" + a);
-		}
-		
 		webSocket = new WebuSocket(
 			// url.
 			"wss://echo.websocket.org:443/",
@@ -73,6 +68,21 @@ public class ConnectionSampleScript : MonoBehaviour {
 				// set WebSocket connection header parameters here!
 			}
 		);
+	}
+
+	int frame = 0;
+	void Update () {
+		if (frame == 100) {
+			Debug.LogError("start connect.");
+			var ws = new WebuSocket(
+				"ws://127.0.0.1:8080/",
+				1000,
+				() => {
+					Debug.LogError("client connected.");
+				}
+			);
+		}
+		frame++;
 	}
 
 	void OnApplicationQuit () {

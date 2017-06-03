@@ -6,24 +6,16 @@ using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
-// using Alchemy;
+using Alchemy;
 
 [InitializeOnLoad] public class WebSocketServer {
-	// サーバ起動を行う。
-
 	static WebSocketServer () {
-		Debug.LogError("ghere!");
-		// var s = new Alchemy.WebSocketServer();
-		// var d = s.Clients;
-		
-		// var dllPath = "Library/ScriptAssemblies/Assembly-CSharp.dll";//Assembly-CSharp-Editor.dll
-		;
-
-		var q = AppDomain.CurrentDomain.GetAssemblies();
-		foreach (var a in q) {
-			Debug.LogError("a:" + a);
-		}
-		
-		// aServer.Start();
+		Debug.LogError("start receiving");
+		var s = new Alchemy.WebSocketServer(8080, IPAddress.Parse("127.0.0.1"));
+		s.OnConnect += (c) => {
+			Debug.LogError("fmm? c:" + c);
+			// OnEventDelegate
+		};
+		s.Start();
 	}
 }
