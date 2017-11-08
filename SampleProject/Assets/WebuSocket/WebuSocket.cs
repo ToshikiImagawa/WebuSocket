@@ -606,6 +606,8 @@ namespace WebuSocketCore {
 								ReadBuffer(token);
 							}
 							return;
+						} else {
+							UnityEngine.Debug.LogError("received.");
 						}
 					}
 					
