@@ -1,0 +1,65 @@
+<html>
+    <head>
+        <script>
+            var ws = null;
+
+            function guid() {
+                function s4() {
+                    return Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
+                }
+                return s4() + s4() + '-' + s4() + '-' + "client";
+            }
+
+            var clientId = guid();
+
+            function connect() {
+                if (ws !== null) return log('already connected');
+                ws = new WebSocket('ws://127.0.0.1:8080/sample_disque_client');
+                ws.onopen = function () {
+                    log('connected, id:' + clientId);
+                    send("connected from this client:" + clientId + " to server.");
+                };
+                ws.onerror = function (error) {
+                    log(error);
+                };
+                ws.onmessage = function (e) {
+                    log('recv: ' + e.data);
+                };
+                ws.onclose = function () {
+                    log('disconnected');
+                    ws = null;
+                };
+                return false;
+            }
+            function disconnect() {
+                if (ws === null) return log('already disconnected');
+                ws.close();
+                return false;
+            }
+            function send(text) {
+                if (ws === null) return log('please connect first');
+                log('send: ' + text + " from client:" + clientId);
+                ws.send(text);
+            }
+            function sendInputted() {
+                var message = document.getElementById('messageInput').value;
+                send(message);
+                return false;
+            }
+            function log(text) {
+                var li = document.createElement('li');
+                li.appendChild(document.createTextNode(text));
+                document.getElementById('log').appendChild(li);
+                return false;
+            }
+            
+            window.addEventListener('load', connect, false);
+        </script>
+    </head>
+    <body>
+        <input id="messageInput" type="text">
+        <input name="buttonExecute" onclick="sendInputted()" type="button" value="send to gameContext">
+
+        <ol id="log"></ol>
+    </body>
+</html>

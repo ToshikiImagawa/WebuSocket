@@ -38,3 +38,6 @@ SampleProject/ProjectSettings/*
 
 SampleProject/SampleProject.sln
 SampleProject/Temp/*
+nginx-luajit-ws/logs/error.log
+nginx-luajit-ws/logs/host.access.log
+nginx-luajit-ws/logs/nginx.pid
