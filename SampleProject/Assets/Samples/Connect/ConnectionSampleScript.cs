@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using UnityEngine;
-
+using UnityEngine.UI;
 using WebuSocketCore;
 
 
@@ -13,6 +14,8 @@ using WebuSocketCore;
 	webuSocket connection sample.
 */
 public class ConnectionSampleScript : MonoBehaviour {
+	public Text times;
+	public Text achieved2;
 	
 	WebuSocket webSocket;
 	private string serverIP = "13.230.48.184";
@@ -31,6 +34,14 @@ public class ConnectionSampleScript : MonoBehaviour {
 		GUILayout.Label("achieved:" + achieved);
 	}
 
+	private List<Action> acts = new List<Action>();
+	private object lockObj = new object();
+	private void Enqueue (Action act) {
+		lock (lockObj) {
+			acts.Add(act);
+		}
+	}
+
 	private void ThreadMethod () {
 
 
@@ -42,6 +53,10 @@ public class ConnectionSampleScript : MonoBehaviour {
 				remoteEP = null;
 				string text = Encoding.ASCII.GetString(data);
 				udpReceiveCount++;
+				Action act = () => {
+					times.text += "+1 ";
+				};
+				Enqueue(act);
 
 				if (text.Contains(":")) {
 					// ここまでの受信はできる。
@@ -57,6 +72,10 @@ public class ConnectionSampleScript : MonoBehaviour {
 					continue;
 				}
 
+				Action act2 = () => {
+					achieved2.text += "true";
+				};
+				Enqueue(act2);
 				achieved = true;
 			} catch (Exception e) {
 				Debug.LogError("e:" + e);
@@ -170,7 +189,14 @@ public class ConnectionSampleScript : MonoBehaviour {
 			}
 		);
 	}
-
+	void Update () {
+		lock (lockObj) {
+			if (acts.Any()) {
+				acts.ForEach(a => a());
+				acts.Clear();
+			}
+		}
+	}
 	void OnApplicationQuit () {
 		if (webSocket != null && webSocket.IsConnected()) {
 			webSocket.Disconnect();
