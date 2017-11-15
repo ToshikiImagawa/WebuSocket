@@ -10,15 +10,19 @@ using System.Text;
 [InitializeOnLoad] public class DummyServer {
     
     static DummyServer () {
-        Debug.Log("initialized.");
+        Debug.Log("ignore.");
+        return;
 
-        Disquuun disquuun = null;
 
         if (!EditorApplication.isPlaying && EditorApplication.isPlayingOrWillChangePlaymode) {
             // pass.            
         } else {
             return;
         }
+        
+
+        Debug.Log("initializing.");
+        Disquuun disquuun = null;
 
         // set server handler.
         {
@@ -36,7 +40,7 @@ using System.Text;
         }
 
         disquuun = new Disquuun(
-            "127.0.0.1", 
+            "192.168.11.5", 
             7711, 
             1024, 
             5,
