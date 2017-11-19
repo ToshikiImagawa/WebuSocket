@@ -19,6 +19,12 @@ public class ConnectionSampleScript : MonoBehaviour {
 	
 	WebuSocket webSocket;
 	private string serverIP = "13.230.48.184";
+	// private string serverIP = "127.0.0.1";
+	private int portNum = 8080;
+
+
+
+
 
 	bool opened = false;
 
@@ -59,21 +65,17 @@ public class ConnectionSampleScript : MonoBehaviour {
 				Enqueue(act);
 
 				if (text.Contains(":")) {
-					// ここまでの受信はできる。
-
+					Debug.Log("サーバからudpでのレスポンスは来た");
 					var ipAndPort = text.Split(':');
 					var currentReceivedIp = ipAndPort[0];// サーバが返してきたクライアントのglobal ip
 					var currentReceivedPort = ipAndPort[1];// サーバが返してきたクライアントのglobal port
 					
-					
-					// var currentReceivedIp = ((IPEndPoint)(udp.Client.LocalEndPoint)).Address.ToString();// このipはローカルipなのでグローバルではない、LAN内でのみ使える。(たまたま一致する。)
-					// var currentReceivedPort = port.ToString();// 接続時に使ったポート。
 					Connect(currentReceivedIp, currentReceivedPort);
 					continue;
 				}
 
 				Action act2 = () => {
-					achieved2.text += "true";
+					achieved2.text += "true. text:" + text;
 				};
 				Enqueue(act2);
 				achieved = true;
@@ -83,10 +85,13 @@ public class ConnectionSampleScript : MonoBehaviour {
 			}
         }
     }
-	private int port;
+
+	IPAddress localIP;
+
 
 	void Start () {
-		IPAddress localIP;
+		
+		// udpClientでデータを送るために、自分のglobal ipを得る
 		using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0)) {
 			socket.Connect("8.8.8.8", 65530);
 			var endPoint = socket.LocalEndPoint as IPEndPoint;
@@ -94,49 +99,25 @@ public class ConnectionSampleScript : MonoBehaviour {
 			Debug.Log("localIP:" + localIP.ToString());
 		}
 
-		
-		// // サーバへとudpを送付する
-		// if (false) {
-		// 	using (var udpSender = new UdpClient()) {
-		// 		// udpSender.Connect(IPAddress.Parse("127.0.0.1"), 7777);
-		// 		// public int Send(byte[] dgram, int bytes, IPEndPoint endPoint);
-		// 		var ep = new IPEndPoint(IPAddress.Parse(serverIP), 7777);
-		// 		// var ep = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 7777);
-		// 		udpSender.Send(new byte[]{1,2,3,4}, 4, ep);
-		// 		port = ((IPEndPoint)udpSender.Client.LocalEndPoint).Port;
-		// 	}
-		// 	Debug.Log("send udp. port:" + port);
-		// }
-
-		// クライアント側は自分が接続しているエンドポイントのipがわかればそれでいい。そこにudpが降ってくるのを待つ。
-		// 送信と受信を一手にできそう。、、もしかしてこれがいけないのか？
+		// udpClientを作成し、epを指定してサーバへとudpを送付する。
+		// これで上りの経路がNATに記録される。
 		if (true) {
-			udp = new UdpClient(new IPEndPoint(new IPAddress(localIP.GetAddressBytes()), 8080));
-			var ep = new IPEndPoint(IPAddress.Parse(serverIP), 8080);
+			udp = new UdpClient(new IPEndPoint(new IPAddress(localIP.GetAddressBytes()), portNum));
+			var ep = new IPEndPoint(IPAddress.Parse(serverIP), portNum);
+			
+			// 送るデータはなんでもいい。
 			var bytes = Encoding.UTF8.GetBytes("hello!");
 			
 			udp.Send(bytes, bytes.Length, ep);
-			
-			port = ((IPEndPoint)udp.Client.LocalEndPoint).Port;
-			Debug.Log("udp sending port:" + port);
-			// udp.Client.ReceiveTimeout = 1000;
-
 			var thread = new Thread(new ThreadStart(ThreadMethod));
 			thread.Start();
 		}
 	}
 
 	private void Connect (string udpIp, string udpPort) {
-		Debug.Log("udp receiving udpIp:" + udpIp + " port:" + udpPort);
-		// var udp2 = new UdpClient();
-		// var ep = new IPEndPoint(IPAddress.Parse(serverIP), Convert.ToInt32(udpPort));
-		// udp2.Send(new byte[]{1,2,3,4}, 4, ep);
-			
 		webSocket = new WebuSocket(
 			// url.
-			// "wss://echo.websocket.org:443/",
-			// "ws://127.0.0.1:8080/sample_disque_client",
-			"ws://" + serverIP + ":8080/sample_disque_client",
+			"ws://" + serverIP + ":"+ portNum + "/sample_disque_client",
 
 			// buffer size.
 			1024,
@@ -145,10 +126,10 @@ public class ConnectionSampleScript : MonoBehaviour {
 			() => {
 				opened = true;
 				Debug.Log("connected to websocket echo-server. send hello to echo-server");
-				webSocket.SendString("hello!");
-				webSocket.SendString("wooooo!");
-				webSocket.SendString("looks!");
-				webSocket.SendString("fine!");
+				// webSocket.SendString("hello!");
+				// webSocket.SendString("wooooo!");
+				// webSocket.SendString("looks!");
+				// webSocket.SendString("fine!");
 			},
 
 			// handler for receiving data from server. 
@@ -170,6 +151,22 @@ public class ConnectionSampleScript : MonoBehaviour {
 					Buffer.BlockCopy(data.Array, data.Offset, bytes, 0, data.Count);
 
 					Debug.Log("message:" + Encoding.UTF8.GetString(bytes));
+
+					// もし数字がかえっていたら、udpで通信してみる。
+					try {
+						var portNum = Convert.ToUInt16(Encoding.UTF8.GetString(bytes));
+
+						udp = new UdpClient(new IPEndPoint(new IPAddress(localIP.GetAddressBytes()), portNum));
+						var ep = new IPEndPoint(IPAddress.Parse(serverIP), portNum);
+						var bytes2 = Encoding.UTF8.GetBytes("hello! again.");
+						
+						udp.Send(bytes2, bytes2.Length, ep);
+						Debug.Log("udp sended. target portNum:" + portNum);
+
+						// var bytes3 = Encoding.UTF8.GetBytes(portNum.ToString());
+						// webSocket.Send(bytes3);
+					} catch {}
+					
 				}
 			},
 			() => {
@@ -182,9 +179,9 @@ public class ConnectionSampleScript : MonoBehaviour {
 				Debug.LogError("error, errorEnum:" + errorEnum + " exception:" + exception);
 			},
 			new Dictionary<string, string>{
-				// set WebSocket connection header parameters here!
+				// // set WebSocket connection header parameters here!
 				{"id", userId},
-				// {"debugaddr", udpIp},
+				// // {"debugaddr", udpIp},
 				{"debugport", udpPort}
 			}
 		);
