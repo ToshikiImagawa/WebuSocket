@@ -74,6 +74,7 @@ public class ConnectionSampleScript : MonoBehaviour {
 					continue;
 				}
 
+				Debug.Log("udp received:" + text);
 				Action act2 = () => {
 					achieved2.text += "true. text:" + text;
 				};
