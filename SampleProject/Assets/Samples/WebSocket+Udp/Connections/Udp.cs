@@ -26,11 +26,9 @@ namespace AutoyaFramework.Connections.Udp {
                 this.remoteEndPoint = remoteEndPoint;
             }
 
-            // anyでもいけるのかどうか試すチャンス
             udp = new UdpClient(new IPEndPoint(IPAddress.Any, port));
             udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            udp.Client.SendTimeout = 10;
-
+            
             lockObj = new object();
 
             ContinueReceive(receiver, endpoint);
@@ -101,7 +99,6 @@ namespace AutoyaFramework.Connections.Udp {
                     data, 
                     data.Length, 
                     ar => {
-                        Debug.Log("sended. ar:" + ar.IsCompleted);
                         udp.EndSend(ar);
                     }, 
                     lockObj
