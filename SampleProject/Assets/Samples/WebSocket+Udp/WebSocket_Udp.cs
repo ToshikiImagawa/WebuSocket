@@ -39,6 +39,7 @@ public class WebSocket_Udp : MonoBehaviour {
 
 					if (first) {
 						first = false;
+
 						Debug.Log("param:" + param);
 						var ip = param.Split(':')[0];
 						var port = param.Split(':')[1];
@@ -50,7 +51,7 @@ public class WebSocket_Udp : MonoBehaviour {
 				},
 				new IPEndPoint(IPAddress.Parse(serverIP), 8080)
 			);
-
+			
 			udpUnit.Send(
 				Encoding.UTF8.GetBytes("hello first udp from client.")
 			);
@@ -77,7 +78,6 @@ public class WebSocket_Udp : MonoBehaviour {
 			1024,
 			() => {
 				Debug.Log("connected to websocket echo-server. send hello to echo-server");
-				// webuSocket.Send(Encoding.UTF8.GetBytes("helo"));
 			},
 			datas => {
 				while (0 < datas.Count) {
