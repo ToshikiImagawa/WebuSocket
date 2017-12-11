@@ -978,12 +978,10 @@ namespace WebuSocketCore
         {
             receivedDataSegments.Clear();
 
-            int messageHead = 0;
             int cursor = 0;
             int lastDataEnd = 0;
             while (cursor < bufferLength)
             {
-                messageHead = cursor;
 
                 // first byte = fin(1), rsv1(1), rsv2(1), rsv3(1), opCode(4)
                 var opCode = (byte)(buffer[cursor++] & WebSocketByteGenerator.OPFilter);

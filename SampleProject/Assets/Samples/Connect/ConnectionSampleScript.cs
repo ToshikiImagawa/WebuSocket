@@ -14,8 +14,6 @@ public class ConnectionSampleScript : MonoBehaviour {
 	
 	WebuSocket webSocket;
 	
-	bool opened = false;
-
 	void Start () {
 
 		webSocket = new WebuSocket(
@@ -27,7 +25,6 @@ public class ConnectionSampleScript : MonoBehaviour {
 
 			// handler for connection established to server.
 			() => {
-				opened = true;
 				Debug.Log("connected to websocket echo-server. send hello to echo-server");
 				webSocket.SendString("hello!");
 				webSocket.SendString("wooooo!");

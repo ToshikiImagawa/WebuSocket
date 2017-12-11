@@ -77,8 +77,10 @@ namespace WebuSocketCore.Encryption
 
         private class WebuSocketTlsAuthentication : TlsAuthentication
         {
+			#pragma warning disable 414
             private readonly TlsContext mContext;
-
+			#pragma warning restore 414
+			
             internal WebuSocketTlsAuthentication(TlsContext context)
             {
                 this.mContext = context;
