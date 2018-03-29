@@ -277,6 +277,13 @@ namespace WebuSocketCore
                                     StartConnectAsync();
                                     return;
                                 }
+
+                                if (ipaddress.AddressFamily == AddressFamily.InterNetworkV6)
+                                {
+                                    this.endPoint = new IPEndPoint(ipaddress, port);
+                                    StartConnectAsync();
+                                    return;
+                                }
                             }
 
                             if (OnError != null)
