@@ -271,19 +271,12 @@ namespace WebuSocketCore
                             // choose valid ip.
                             foreach (IPAddress ipaddress in addresses.AddressList)
                             {
-                                if (ipaddress.AddressFamily == AddressFamily.InterNetwork)
+                                if (ipaddress.AddressFamily == AddressFamily.InterNetwork || ipaddress.AddressFamily == AddressFamily.InterNetworkV6)
                                 {
                                     this.endPoint = new IPEndPoint(ipaddress, port);
                                     StartConnectAsync();
                                     return;
-                                }
-
-                                if (ipaddress.AddressFamily == AddressFamily.InterNetworkV6)
-                                {
-                                    this.endPoint = new IPEndPoint(ipaddress, port);
-                                    StartConnectAsync();
-                                    return;
-                                }
+                                }	
                             }
 
                             if (OnError != null)
@@ -338,7 +331,7 @@ namespace WebuSocketCore
 
         private void StartConnectAsync()
         {
-            var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            var clientSocket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             clientSocket.NoDelay = true;
             clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
 
