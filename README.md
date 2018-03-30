@@ -49,7 +49,7 @@ sample unity project is here
 
 ## implemented
 * basic WebSocket API
-* connect by ip
+* connect by ipv4 & 6
 * connect by domain
 * tls
 * reconnection
