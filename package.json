@@ -1,0 +1,8 @@
+{
+    "name": "com.sassembla.webusocket",
+    "displayName": "WebuSocket",
+    "version": "0.8.0",
+    "unity": "2018.4",
+    "description": "WebSocket Client implementation for C#.",
+    "dependencies": { }
+}
